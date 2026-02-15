@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaBook, FaArrowLeft, FaBookOpen, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
-
-const API_BASE = 'http://localhost:3003'
+import { API_BASE, PERSON } from './config'
 const CHARS_PER_PAGE = 1400
 
 interface BookMeta {
@@ -70,6 +69,34 @@ export default function BooksPage() {
   const [flipDir, setFlipDir] = useState<'left' | 'right' | null>(null)
   const [flipKey, setFlipKey] = useState(0)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  // Personalized book recommendations
+  const [bookSuggestions, setBookSuggestions] = useState<string[]>([])
+  const [bookSuggestionsLoading, setBookSuggestionsLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchBookSuggestions() {
+      try {
+        const res = await fetch(`${API_BASE}/getContext`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app: 'books', person: PERSON, k: 5 }),
+        })
+        if (!res.ok) throw new Error('Failed')
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data.result)) {
+          setBookSuggestions(data.result)
+        }
+      } catch {
+        // Silently fail
+      } finally {
+        if (!cancelled) setBookSuggestionsLoading(false)
+      }
+    }
+    fetchBookSuggestions()
+    return () => { cancelled = true }
+  }, [])
 
   // Split chapter into pages
   const pages = useMemo(() => splitIntoPages(chapterContent), [chapterContent])
@@ -275,6 +302,46 @@ export default function BooksPage() {
           <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, margin: 0 }}>
             {books.length} classics — wink to browse, double-blink to read
           </p>
+        )}
+
+        {/* Personalized book recommendations */}
+        {!readingBook && bookSuggestions.length > 0 && (
+          <div style={{ maxWidth: 700, marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: 'rgba(212,165,116,0.5)', marginBottom: 8, textAlign: 'center' }}>
+              Recommended for you
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                justifyContent: 'center',
+              }}
+            >
+              {bookSuggestions.map((s, i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: 'rgba(212,165,116,0.08)',
+                    border: '1px solid rgba(212,165,116,0.2)',
+                    borderRadius: 10,
+                    color: 'rgba(255,255,255,0.6)',
+                    padding: '6px 12px',
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                    maxWidth: 280,
+                  }}
+                >
+                  {s}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {!readingBook && bookSuggestionsLoading && (
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)', marginTop: 8 }}>
+            Loading personalized recommendations...
+          </div>
         )}
       </div>
 
