@@ -1,265 +1,368 @@
-import { useNavigate } from 'react-router-dom'
-import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
+/**
+ * AppsPage.tsx — App launcher with bento grid layout.
+ *
+ * Displays all available Revive apps in an asymmetric "bento box" grid layout,
+ * inspired by modern dashboard UIs (Apple, Linear, Vercel).
+ *
+ * Features:
+ *   - Bento grid with featured/tall/wide card variants
+ *   - Category labels (Productivity, Content, Games)
+ *   - Animated gradient borders on hover (CSS mask technique)
+ *   - Staggered entrance animations
+ *   - Mesh gradient background with ambient orbs
+ *   - Micro-interactions (scale, glow, translate on hover)
+ *   - Responsive: collapses to 2-column on mobile
+ *
+ * Parent: main.tsx (rendered as "/apps" route)
+ * Children: None (leaf component)
+ *
+ * Each app card navigates to its respective route on click:
+ *   /apps/chat, /apps/web-search, /apps/books, etc.
+ */
 
+import { useNavigate } from 'react-router-dom'
+import {
+  FaAmazon,
+  FaMapMarkerAlt,
+  FaComments,
+  FaSearch,
+  FaDove,
+  FaBook,
+  FaMicrophone,
+} from 'react-icons/fa'
+
+/** App card configuration with layout variant and visual properties */
 interface AppCard {
   name: string
   icon: React.ReactNode
   gradient: string
-  shadow: string
+  glowColor: string
   description: string
-  path?: string
+  path: string
+  category: 'Productivity' | 'Content' | 'Games'
+  /** Bento grid variant: 'featured' spans 2x2, 'tall' spans 1x2, 'wide' spans 2x1, 'normal' is 1x1 */
+  variant: 'featured' | 'tall' | 'wide' | 'normal'
 }
 
 const apps: AppCard[] = [
   {
-    name: 'Amazon',
-    icon: <FaAmazon size={48} />,
-    gradient: 'linear-gradient(135deg, #FF9900 0%, #FFB84D 50%, #FF9900 100%)',
-    shadow: 'rgba(255, 153, 0, 0.4)',
-    description: 'Search & scrape product data',
-    path: '/apps/amazon',
-  },
-  {
-    name: 'Google Maps',
-    icon: <FaMapMarkerAlt size={48} />,
-    gradient: 'linear-gradient(135deg, #4285F4 0%, #34A853 50%, #4285F4 100%)',
-    shadow: 'rgba(66, 133, 244, 0.4)',
-    description: 'Search places & businesses',
-    path: '/apps/maps',
-  },
-  {
     name: 'ChatGPT',
-    icon: <FaComments size={48} />,
-    gradient: 'linear-gradient(135deg, #10b981 0%, #34d399 50%, #10b981 100%)',
-    shadow: 'rgba(16, 185, 129, 0.4)',
-    description: 'Chat with GPT',
+    icon: <FaComments size={32} />,
+    gradient: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #10b981 100%)',
+    glowColor: 'rgba(16, 185, 129, 0.3)',
+    description: 'Converse with GPT using blinks and voice. Full streaming chat with RAG-powered context.',
     path: '/apps/chat',
+    category: 'Productivity',
+    variant: 'featured',
   },
   {
     name: 'Web Search',
-    icon: <FaSearch size={48} />,
+    icon: <FaSearch size={28} />,
     gradient: 'linear-gradient(135deg, #4285F4 0%, #EA4335 33%, #FBBC05 66%, #34A853 100%)',
-    shadow: 'rgba(66, 133, 244, 0.4)',
-    description: 'Search Google SERP',
+    glowColor: 'rgba(66, 133, 244, 0.3)',
+    description: 'Search Google with blink-navigable carousel results',
     path: '/apps/web-search',
-  },
-  {
-    name: 'Flappy Bird',
-    icon: <FaDove size={48} />,
-    gradient: 'linear-gradient(135deg, #FFD600 0%, #FF6D00 50%, #FFD600 100%)',
-    shadow: 'rgba(255, 214, 0, 0.4)',
-    description: 'Blink to flap & fly',
-    path: '/apps/flappy-bird',
-  },
-  {
-    name: 'Books',
-    icon: <FaBook size={48} />,
-    gradient: 'linear-gradient(135deg, #D4A574 0%, #8B6914 50%, #D4A574 100%)',
-    shadow: 'rgba(212, 165, 116, 0.4)',
-    description: 'Read classic literature',
-    path: '/apps/books',
+    category: 'Productivity',
+    variant: 'tall',
   },
   {
     name: 'Talk',
-    icon: <FaMicrophone size={48} />,
+    icon: <FaMicrophone size={28} />,
     gradient: 'linear-gradient(135deg, #8B5CF6 0%, #A78BFA 50%, #8B5CF6 100%)',
-    shadow: 'rgba(139, 92, 246, 0.4)',
-    description: 'Voice conversations',
+    glowColor: 'rgba(139, 92, 246, 0.3)',
+    description: 'Clone your voice and generate speech',
     path: '/apps/talk',
+    category: 'Productivity',
+    variant: 'normal',
+  },
+  {
+    name: 'Books',
+    icon: <FaBook size={28} />,
+    gradient: 'linear-gradient(135deg, #D4A574 0%, #8B6914 50%, #D4A574 100%)',
+    glowColor: 'rgba(212, 165, 116, 0.3)',
+    description: 'Read classic literature with blink-powered page turning and chapter navigation',
+    path: '/apps/books',
+    category: 'Content',
+    variant: 'wide',
+  },
+  {
+    name: 'Flappy Bird',
+    icon: <FaDove size={28} />,
+    gradient: 'linear-gradient(135deg, #FFD600 0%, #FF6D00 50%, #FFD600 100%)',
+    glowColor: 'rgba(255, 214, 0, 0.3)',
+    description: 'Blink to flap and fly through pipes',
+    path: '/apps/flappy-bird',
+    category: 'Games',
+    variant: 'normal',
+  },
+  {
+    name: 'Amazon',
+    icon: <FaAmazon size={28} />,
+    gradient: 'linear-gradient(135deg, #FF9900 0%, #FFB84D 50%, #FF9900 100%)',
+    glowColor: 'rgba(255, 153, 0, 0.3)',
+    description: 'Search and browse product data',
+    path: '/apps/amazon',
+    category: 'Productivity',
+    variant: 'normal',
+  },
+  {
+    name: 'Google Maps',
+    icon: <FaMapMarkerAlt size={28} />,
+    gradient: 'linear-gradient(135deg, #4285F4 0%, #34A853 50%, #4285F4 100%)',
+    glowColor: 'rgba(66, 133, 244, 0.3)',
+    description: 'Search places and businesses hands-free',
+    path: '/apps/maps',
+    category: 'Productivity',
+    variant: 'normal',
   },
 ]
+
+/**
+ * getCategoryColor — Returns a subtle color for category labels.
+ * @param category The app's category
+ * @returns CSS color string
+ */
+function getCategoryColor(category: string): string {
+  switch (category) {
+    case 'Productivity': return 'var(--accent-blue)'
+    case 'Content': return '#D4A574'
+    case 'Games': return 'var(--accent-amber)'
+    default: return 'var(--text-tertiary)'
+  }
+}
 
 export default function AppsPage() {
   const navigate = useNavigate()
 
   return (
     <div
+      className="page bg-mesh"
       style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'linear-gradient(160deg, #0a0a0a 0%, #111827 50%, #0a0a0a 100%)',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
+        overflowY: 'auto',
+        paddingTop: 'calc(var(--navbar-height) + 40px)',
+        paddingBottom: 60,
       }}
     >
-      {/* Ambient background glow */}
+      {/* ── Ambient orbs ── */}
       <div
         style={{
-          position: 'absolute',
+          position: 'fixed',
           width: 600,
           height: 600,
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(99, 102, 241, 0.08) 0%, transparent 70%)',
-          top: '10%',
-          left: '50%',
-          transform: 'translateX(-50%)',
+          background: 'radial-gradient(circle, rgba(99, 102, 241, 0.07) 0%, transparent 70%)',
+          top: '0%',
+          left: '15%',
           pointerEvents: 'none',
+          animation: 'orbDrift1 22s ease-in-out infinite',
+        }}
+      />
+      <div
+        style={{
+          position: 'fixed',
+          width: 500,
+          height: 500,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(139, 92, 246, 0.05) 0%, transparent 70%)',
+          bottom: '0%',
+          right: '10%',
+          pointerEvents: 'none',
+          animation: 'orbDrift2 28s ease-in-out infinite',
         }}
       />
 
-      <h1
-        style={{
-          color: '#fff',
-          fontSize: 36,
-          fontWeight: 700,
-          marginBottom: 8,
-          letterSpacing: '-1px',
-        }}
-      >
-        Apps
-      </h1>
-      <p
-        style={{
-          color: 'rgba(255,255,255,0.4)',
-          fontSize: 16,
-          marginBottom: 56,
-          marginTop: 0,
-        }}
-      >
-        Connect with your favorite platforms
-      </p>
-
+      {/* ── Page header ── */}
       <div
         style={{
-          display: 'flex',
-          gap: 40,
-          flexWrap: 'wrap',
-          justifyContent: 'center',
-          padding: '0 24px',
+          textAlign: 'center',
+          marginBottom: 48,
+          animation: 'slideInUp 0.5s var(--ease-out-expo)',
+          position: 'relative',
+          zIndex: 1,
         }}
       >
-        {apps.map((app, i) => (
-          <div
-            key={app.name}
-            className="app-card"
-            onClick={() => app.path && navigate(app.path)}
-            style={{
-              width: 200,
-              height: 240,
-              borderRadius: 24,
-              background: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 20,
-              cursor: 'pointer',
-              transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-              animation: `floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.12}s both, float${i} 6s ease-in-out ${i * 0.8}s infinite`,
-              position: 'relative',
-            }}
-            onMouseEnter={(e) => {
-              const el = e.currentTarget
-              el.style.transform = 'translateY(-16px) scale(1.05)'
-              el.style.boxShadow = `0 32px 64px -16px ${app.shadow}, 0 0 0 1px rgba(255,255,255,0.12)`
-              el.style.background = 'rgba(255, 255, 255, 0.08)'
-            }}
-            onMouseLeave={(e) => {
-              const el = e.currentTarget
-              el.style.transform = ''
-              el.style.boxShadow = ''
-              el.style.background = 'rgba(255, 255, 255, 0.04)'
-            }}
-          >
-            {/* Icon container with gradient background */}
-            <div
-              style={{
-                width: 88,
-                height: 88,
-                borderRadius: 22,
-                background: app.gradient,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#fff',
-                boxShadow: `0 8px 32px -4px ${app.shadow}`,
-                transition: 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease',
-              }}
-            >
-              {app.icon}
-            </div>
-
-            <div style={{ textAlign: 'center' }}>
-              <div
-                style={{
-                  color: '#fff',
-                  fontSize: 17,
-                  fontWeight: 600,
-                  marginBottom: 4,
-                }}
-              >
-                {app.name}
-              </div>
-              <div
-                style={{
-                  color: 'rgba(255,255,255,0.35)',
-                  fontSize: 13,
-                }}
-              >
-                {app.description}
-              </div>
-            </div>
-          </div>
-        ))}
+        <h1
+          style={{
+            color: 'var(--text-primary)',
+            fontSize: 42,
+            fontWeight: 800,
+            letterSpacing: '-2px',
+            marginBottom: 12,
+            lineHeight: 1.1,
+          }}
+        >
+          Apps
+        </h1>
+        <p
+          style={{
+            color: 'var(--text-tertiary)',
+            fontSize: 16,
+            fontWeight: 400,
+            maxWidth: 400,
+            margin: '0 auto',
+            lineHeight: 1.5,
+          }}
+        >
+          Hands-free access to your favorite tools and experiences
+        </p>
       </div>
 
-      {/* Keyframe animations injected via <style> */}
-      <style>{`
-        @keyframes floatIn {
-          from {
-            opacity: 0;
-            transform: translateY(40px) scale(0.9);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
+      {/* ── Bento Grid ── */}
+      <div className="bento-grid" style={{ position: 'relative', zIndex: 1 }}>
+        {apps.map((app, i) => {
+          const variantClass =
+            app.variant === 'featured'
+              ? 'bento-item--featured'
+              : app.variant === 'tall'
+                ? 'bento-item--tall'
+                : app.variant === 'wide'
+                  ? 'bento-item--wide'
+                  : ''
 
-        @keyframes float0 {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
+          return (
+            <div
+              key={app.name}
+              className={`bento-item ${variantClass}`}
+              onClick={() => navigate(app.path)}
+              style={{
+                animation: `bentoFadeIn 0.5s var(--ease-out-expo) ${i * 0.08}s both`,
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget
+                el.style.transform = 'translateY(-6px) scale(1.02)'
+                el.style.boxShadow = `0 24px 48px -12px ${app.glowColor}, 0 0 0 1px var(--border-default)`
+                el.style.borderColor = 'var(--border-strong)'
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget
+                el.style.transform = ''
+                el.style.boxShadow = ''
+                el.style.borderColor = ''
+              }}
+            >
+              {/* Background glow effect on hover */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: -40,
+                  right: -40,
+                  width: app.variant === 'featured' ? 260 : 180,
+                  height: app.variant === 'featured' ? 260 : 180,
+                  borderRadius: '50%',
+                  background: `radial-gradient(circle, ${app.glowColor} 0%, transparent 70%)`,
+                  opacity: 0.4,
+                  pointerEvents: 'none',
+                  transition: 'opacity 0.4s ease',
+                }}
+              />
 
-        @keyframes float1 {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-8px); }
-        }
+              {/* Category label */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 20,
+                  left: 24,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  color: getCategoryColor(app.category),
+                  opacity: 0.7,
+                }}
+              >
+                {app.category}
+              </div>
 
-        @keyframes float2 {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-12px); }
-        }
+              {/* Icon */}
+              <div
+                style={{
+                  width: app.variant === 'featured' ? 72 : 56,
+                  height: app.variant === 'featured' ? 72 : 56,
+                  borderRadius: app.variant === 'featured' ? 20 : 16,
+                  background: app.gradient,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  boxShadow: `0 8px 24px -4px ${app.glowColor}`,
+                  marginBottom: 16,
+                  transition: 'transform 0.3s var(--ease-spring), box-shadow 0.3s ease',
+                  flexShrink: 0,
+                }}
+              >
+                {app.icon}
+              </div>
 
-        @keyframes float3 {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-9px); }
-        }
+              {/* Text content */}
+              <div>
+                <div
+                  style={{
+                    color: 'var(--text-primary)',
+                    fontSize: app.variant === 'featured' ? 20 : 16,
+                    fontWeight: 700,
+                    marginBottom: 6,
+                    letterSpacing: '-0.3px',
+                  }}
+                >
+                  {app.name}
+                </div>
+                <div
+                  style={{
+                    color: 'var(--text-tertiary)',
+                    fontSize: app.variant === 'featured' ? 14 : 13,
+                    lineHeight: 1.5,
+                    display: '-webkit-box',
+                    WebkitLineClamp: app.variant === 'featured' ? 3 : 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {app.description}
+                </div>
+              </div>
 
-        @keyframes float4 {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-11px); }
-        }
+              {/* Arrow indicator (bottom-right) */}
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 20,
+                  right: 24,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 8,
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--text-tertiary)',
+                  fontSize: 12,
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                &rarr;
+              </div>
+            </div>
+          )
+        })}
+      </div>
 
-        @keyframes float5 {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-
-        @keyframes float6 {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-9px); }
-        }
-
-        .app-card:hover {
-          animation-play-state: paused !important;
-        }
-      `}</style>
+      {/* ── Footer hint ── */}
+      <div
+        style={{
+          marginTop: 48,
+          textAlign: 'center',
+          color: 'var(--text-muted)',
+          fontSize: 13,
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
+        Navigate with blinks · Double-blink to select · Long-close to go back
+      </div>
     </div>
   )
 }
