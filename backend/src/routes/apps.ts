@@ -737,7 +737,7 @@ apps.get("/web-proxy", async (c) => {
 });
 
 /* ══════════════════════════════════════════════════════════════════
-   Books (Project Gutenberg — EPUB-based with chapter navigation)
+   Books (Standard Ebooks primary, Gutenberg fallback — EPUB-based)
    ══════════════════════════════════════════════════════════════════ */
 
 interface BookMeta {
@@ -745,19 +745,30 @@ interface BookMeta {
   title: string;
   author: string;
   coverUrl: string;
+  seSlug?: string; // Standard Ebooks repo slug for reliable EPUB source
+}
+
+/** Build Standard Ebooks EPUB download URL from slug */
+function seEpubUrl(slug: string): string {
+  // Slug format: "author_title" or "author_title_contributor"
+  // URL path: /ebooks/author/title[/contributor]/downloads/slug.epub
+  // ?source=download bypasses the HTML download page and returns the actual file
+  const parts = slug.split("_");
+  const pathSegments = parts.join("/");
+  return `https://standardebooks.org/ebooks/${pathSegments}/downloads/${slug}.epub?source=download`;
 }
 
 const CURATED_BOOKS: BookMeta[] = [
-  { id: 1342, title: "Pride and Prejudice", author: "Jane Austen", coverUrl: "https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg" },
-  { id: 11, title: "Alice's Adventures in Wonderland", author: "Lewis Carroll", coverUrl: "https://www.gutenberg.org/cache/epub/11/pg11.cover.medium.jpg" },
-  { id: 84, title: "Frankenstein", author: "Mary Shelley", coverUrl: "https://www.gutenberg.org/cache/epub/84/pg84.cover.medium.jpg" },
-  { id: 2701, title: "Moby Dick", author: "Herman Melville", coverUrl: "https://www.gutenberg.org/cache/epub/2701/pg2701.cover.medium.jpg" },
-  { id: 98, title: "A Tale of Two Cities", author: "Charles Dickens", coverUrl: "https://www.gutenberg.org/cache/epub/98/pg98.cover.medium.jpg" },
-  { id: 1661, title: "The Adventures of Sherlock Holmes", author: "Arthur Conan Doyle", coverUrl: "https://www.gutenberg.org/cache/epub/1661/pg1661.cover.medium.jpg" },
-  { id: 345, title: "Dracula", author: "Bram Stoker", coverUrl: "https://www.gutenberg.org/cache/epub/345/pg345.cover.medium.jpg" },
-  { id: 132, title: "The Art of War", author: "Sun Tzu", coverUrl: "https://www.gutenberg.org/cache/epub/132/pg132.cover.medium.jpg" },
-  { id: 174, title: "The Picture of Dorian Gray", author: "Oscar Wilde", coverUrl: "https://www.gutenberg.org/cache/epub/174/pg174.cover.medium.jpg" },
-  { id: 1080, title: "A Modest Proposal", author: "Jonathan Swift", coverUrl: "https://www.gutenberg.org/cache/epub/1080/pg1080.cover.medium.jpg" },
+  { id: 1342, title: "Pride and Prejudice", author: "Jane Austen", coverUrl: "https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg", seSlug: "jane-austen_pride-and-prejudice" },
+  { id: 11, title: "Alice's Adventures in Wonderland", author: "Lewis Carroll", coverUrl: "https://www.gutenberg.org/cache/epub/11/pg11.cover.medium.jpg", seSlug: "lewis-carroll_alices-adventures-in-wonderland_john-tenniel" },
+  { id: 84, title: "Frankenstein", author: "Mary Shelley", coverUrl: "https://www.gutenberg.org/cache/epub/84/pg84.cover.medium.jpg", seSlug: "mary-shelley_frankenstein" },
+  { id: 2701, title: "Moby Dick", author: "Herman Melville", coverUrl: "https://www.gutenberg.org/cache/epub/2701/pg2701.cover.medium.jpg", seSlug: "herman-melville_moby-dick" },
+  { id: 98, title: "A Tale of Two Cities", author: "Charles Dickens", coverUrl: "https://www.gutenberg.org/cache/epub/98/pg98.cover.medium.jpg", seSlug: "charles-dickens_a-tale-of-two-cities" },
+  { id: 1661, title: "The Adventures of Sherlock Holmes", author: "Arthur Conan Doyle", coverUrl: "https://www.gutenberg.org/cache/epub/1661/pg1661.cover.medium.jpg", seSlug: "arthur-conan-doyle_the-adventures-of-sherlock-holmes" },
+  { id: 345, title: "Dracula", author: "Bram Stoker", coverUrl: "https://www.gutenberg.org/cache/epub/345/pg345.cover.medium.jpg", seSlug: "bram-stoker_dracula" },
+  { id: 132, title: "The Art of War", author: "Sun Tzu", coverUrl: "https://www.gutenberg.org/cache/epub/132/pg132.cover.medium.jpg", seSlug: "sun-tzu_the-art-of-war_lionel-giles" },
+  { id: 174, title: "The Picture of Dorian Gray", author: "Oscar Wilde", coverUrl: "https://www.gutenberg.org/cache/epub/174/pg174.cover.medium.jpg", seSlug: "oscar-wilde_the-picture-of-dorian-gray" },
+  { id: 76, title: "Adventures of Huckleberry Finn", author: "Mark Twain", coverUrl: "https://www.gutenberg.org/cache/epub/76/pg76.cover.medium.jpg", seSlug: "mark-twain_the-adventures-of-huckleberry-finn" },
 ];
 
 interface Chapter {
@@ -794,17 +805,26 @@ function xhtmlToText(xhtml: string): string {
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(parseInt(code)))
     .replace(/&#x([0-9a-f]+);/gi, (_m, code) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/\t/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-/** Fetch and parse an EPUB from Project Gutenberg, returning chapters */
-async function fetchAndParseEpub(gutenbergId: number): Promise<Chapter[]> {
-  const urls = [
-    `https://www.gutenberg.org/ebooks/${gutenbergId}.epub.noimages`,
-    `https://www.gutenberg.org/cache/epub/${gutenbergId}/pg${gutenbergId}-images-3.epub`,
-    `https://www.gutenberg.org/ebooks/${gutenbergId}.epub3.images`,
-  ];
+/** Fetch and parse an EPUB, trying Standard Ebooks first then Gutenberg */
+async function fetchAndParseEpub(book: BookMeta): Promise<Chapter[]> {
+  const urls: string[] = [];
+
+  // Standard Ebooks first — much more reliable than Gutenberg
+  if (book.seSlug) {
+    urls.push(seEpubUrl(book.seSlug));
+  }
+
+  // Gutenberg fallbacks
+  urls.push(
+    `https://www.gutenberg.org/ebooks/${book.id}.epub.noimages`,
+    `https://www.gutenberg.org/cache/epub/${book.id}/pg${book.id}-images-3.epub`,
+    `https://www.gutenberg.org/ebooks/${book.id}.epub3.images`,
+  );
 
   let epubBuffer: ArrayBuffer | null = null;
   for (const url of urls) {
@@ -885,8 +905,12 @@ async function fetchAndParseEpub(gutenbergId: number): Promise<Chapter[]> {
       title = `Chapter ${chapterNum}`;
     }
 
+    // Skip Standard Ebooks boilerplate sections
+    const titleLower = title.toLowerCase();
+    if (["titlepage", "imprint", "colophon", "uncopyright", "endnotes", "loi"].includes(titleLower)) continue;
+
     const text = xhtmlToText(xhtml);
-    if (text.length < 50) continue; // Skip empty/boilerplate chapters
+    if (text.length < 100) continue; // Skip empty/very short boilerplate chapters
 
     chapters.push({ title, content: text });
     chapterNum++;
@@ -905,7 +929,8 @@ apps.get("/book-content/:id", async (c) => {
     return c.json({ error: "Invalid book ID." }, 400);
   }
 
-  if (!CURATED_BOOKS.find((b) => b.id === gutenbergId)) {
+  const book = CURATED_BOOKS.find((b) => b.id === gutenbergId);
+  if (!book) {
     return c.json({ error: "Book not found." }, 404);
   }
 
@@ -915,8 +940,8 @@ apps.get("/book-content/:id", async (c) => {
     let chapters = bookChapterCache.get(gutenbergId);
 
     if (!chapters) {
-      console.log(`[books] Fetching EPUB for Gutenberg ID ${gutenbergId}`);
-      chapters = await fetchAndParseEpub(gutenbergId);
+      console.log(`[books] Fetching EPUB for "${book.title}" (ID ${gutenbergId}, SE: ${book.seSlug || "none"})`);
+      chapters = await fetchAndParseEpub(book);
       bookChapterCache.set(gutenbergId, chapters);
 
       if (bookChapterCache.size > 20) {
@@ -946,6 +971,107 @@ apps.get("/book-content/:id", async (c) => {
   } catch (err) {
     console.error("[books] Error:", err);
     return c.json({ error: "Failed to fetch book content." }, 500);
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   Talk — Fish Audio Voice Cloning + TTS
+   ══════════════════════════════════════════════════════════════════ */
+
+const FISH_AUDIO_API_KEY = process.env.FISH_AUDIO_API_KEY || "";
+const FISH_AUDIO_BASE = "https://api.fish.audio";
+
+/**
+ * POST /apps/talk/clone
+ * Accepts a multipart form upload with an audio file.
+ * Sends it to Fish Audio to create a cloned voice model.
+ * Returns { modelId: string }
+ */
+apps.post("/talk/clone", async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const file = body["audio"];
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: "Missing audio file" }, 400);
+    }
+
+    const title = (body["title"] as string) || "Cloned Voice";
+    const arrayBuf = await file.arrayBuffer();
+
+    const form = new FormData();
+    form.append("type", "tts");
+    form.append("title", title);
+    form.append("train_mode", "fast");
+    form.append("visibility", "private");
+    form.append("enhance_audio_quality", "true");
+    form.append("voices", new Blob([arrayBuf], { type: file.type }), file.name);
+
+    const res = await fetch(`${FISH_AUDIO_BASE}/model`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${FISH_AUDIO_API_KEY}` },
+      body: form,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[talk/clone] Fish Audio error:", errText);
+      return c.json({ error: "Voice cloning failed" }, 502);
+    }
+
+    const data = (await res.json()) as { _id: string };
+    return c.json({ modelId: data._id });
+  } catch (err) {
+    console.error("[talk/clone] Error:", err);
+    return c.json({ error: "Voice cloning failed" }, 500);
+  }
+});
+
+/**
+ * POST /apps/talk/generate
+ * Body: { text: string, referenceId: string }
+ * Returns the generated audio as an MP3 binary.
+ */
+apps.post("/talk/generate", async (c) => {
+  try {
+    const { text } = await c.req.json<{
+      text: string;
+    }>();
+
+    if (!text) {
+      return c.json({ error: "Missing text" }, 400);
+    }
+
+    const res = await fetch(`${FISH_AUDIO_BASE}/v1/tts`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${FISH_AUDIO_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        reference_id: "3efe9252cd4c4e6185d4630cb30c8bf2",
+        format: "mp3",
+        mode: "s1",
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[talk/generate] Fish Audio error:", errText);
+      return c.json({ error: "Audio generation failed" }, 502);
+    }
+
+    const audioBuffer = await res.arrayBuffer();
+    return new Response(audioBuffer, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Length": String(audioBuffer.byteLength),
+      },
+    });
+  } catch (err) {
+    console.error("[talk/generate] Error:", err);
+    return c.json({ error: "Audio generation failed" }, 500);
   }
 });
 

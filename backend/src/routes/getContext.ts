@@ -253,6 +253,60 @@ Example format:
       return APP_CONFIGS.websearch.buildUserMessage(text);
     },
   },
+
+  talk: {
+    label: "Talk",
+    maxTokens: 1024,
+
+    buildPrompt(chunks: ContextChunk[], text?: string): string {
+      let transcript = "(No conversation captured yet.)";
+      let speakerInfo = "";
+
+      if (text) {
+        try {
+          const parsed = JSON.parse(text);
+          transcript = parsed.transcript || transcript;
+          const sp = parsed.selectedSpeaker;
+          const count = parsed.speakerCount || 2;
+          speakerInfo = `The user wants to respond to Speaker ${sp + 1} (out of ${count} speakers). Generate replies to what Speaker ${sp + 1} has been saying in the conversation.`;
+        } catch {
+          transcript = text;
+        }
+      }
+
+      const contextBlock =
+        chunks.length > 0
+          ? chunks
+              .map(
+                (c, i) =>
+                  `[${i + 1}] ${c.speaker ? `(${c.speaker}) ` : ""}${c.content}`
+              )
+              .join("\n")
+          : "(No additional personal context found.)";
+
+      return `You are a conversational response generator for a person who communicates through an assistive blink-detection interface. You have access to both the live conversation transcript and personal context about the user.
+
+Live conversation transcript:
+${transcript}
+
+${speakerInfo}
+
+Personal context about the user:
+${contextBlock}
+
+Instructions:
+- Based on the conversation above, generate 6 short response options that the user could say in reply to the identified speaker.
+- Each response should be 3-15 words — short enough to be spoken naturally.
+- Make responses contextually appropriate to what was just said in the conversation.
+- Vary the tone: include some agreeable, some questioning, some redirecting options.
+- Use the personal context to personalize responses where relevant.
+- The first option should be the most natural/likely response.
+- Return ONLY a JSON array of 6 strings. No descriptions, no objects, no extra text, no markdown fences, no explanation.
+
+Example format:
+["That sounds great, let's do it","I'm not sure about that","Can you tell me more?","I was actually thinking about something else","Yeah, I agree completely","What time works for you?"]`;
+    },
+  },
 };
 
 /** List of supported app names (for error messages). */
@@ -404,6 +458,15 @@ getContext.post("/", async (c) => {
     const systemPrompt = config.buildPrompt(context, text);
 
     const userMessage = config.buildUserMessage(text);
+    let userMessage: string;
+    if (appKey === "talk") {
+      userMessage =
+        "Generate conversational response options based on the transcript.";
+    } else {
+      userMessage = text
+        ? `Generate product ideas focused on: ${text}`
+        : "Generate product ideas based on my context.";
+    }
 
     const dialog: DialogMessage[] = [{ role: "user", content: userMessage }];
 

@@ -25,6 +25,7 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
 
 /** Describes a single app card in the launcher grid. */
 interface AppCard {
@@ -85,6 +86,14 @@ const apps: AppCard[] = [
     shadow: 'rgba(212, 165, 116, 0.4)',
     description: 'Read classic literature',
     path: '/apps/books',
+  },
+  {
+    name: 'Talk',
+    icon: <FaMicrophone size={48} />,
+    gradient: 'linear-gradient(135deg, #8B5CF6 0%, #A78BFA 50%, #8B5CF6 100%)',
+    shadow: 'rgba(139, 92, 246, 0.4)',
+    description: 'Voice conversations',
+    path: '/apps/talk',
   },
 ]
 
@@ -405,6 +414,11 @@ export default function AppsPage() {
         @keyframes float5 {
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-10px); }
+        }
+
+        @keyframes float6 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-9px); }
         }
 
         .app-card:hover {
