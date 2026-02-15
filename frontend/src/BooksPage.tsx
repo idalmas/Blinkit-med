@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaBook, FaArrowLeft, FaBookOpen, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
-import { API_BASE } from './config'
+
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
 const CHARS_PER_PAGE = 1400
 
 interface BookMeta {

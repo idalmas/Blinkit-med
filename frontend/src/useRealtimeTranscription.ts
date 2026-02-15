@@ -14,6 +14,67 @@ interface TranscriptMessage {
   is_final: boolean;
 }
 
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim();
+
+/**
+ * toWebSocketUrl — convert HTTP(S) API base URL to WS(S) URL for realtime streams.
+ *
+ * Inputs:
+ * - apiBase: Backend base URL from env (e.g. http://localhost:3001).
+ *
+ * Outputs:
+ * - string: WebSocket base URL (e.g. ws://localhost:3001).
+ */
+function toWebSocketUrl(apiBase: string): string {
+  try {
+    const url = new URL(apiBase);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    // Fallback for malformed env values.
+    return apiBase
+      .replace(/^https:/, 'wss:')
+      .replace(/^http:/, 'ws:')
+      .replace(/\/$/, '');
+  }
+}
+
+/**
+ * connectWithFallback — attempts websocket connection across candidate URLs.
+ *
+ * Inputs:
+ * - urls: Ordered websocket URL candidates to try.
+ *
+ * Outputs:
+ * - Promise<WebSocket>: First successfully opened socket.
+ *   Rejects if every candidate fails.
+ */
+async function connectWithFallback(urls: string[]): Promise<WebSocket> {
+  let lastError: Error | null = null;
+
+  for (const url of urls) {
+    const ws = await new Promise<WebSocket>((resolve, reject) => {
+      const socket = new WebSocket(url);
+
+      socket.onopen = () => resolve(socket);
+      socket.onerror = () => {
+        socket.close();
+        reject(new Error(`Failed to connect to ${url}`));
+      };
+    }).catch((err: unknown) => {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      return null;
+    });
+
+    if (ws) return ws;
+  }
+
+  throw lastError ?? new Error('Failed to connect to realtime transcription socket');
+}
+
 export function useRealtimeTranscription() {
   const [isRecording, setIsRecording] = useState(false);
   const [utterances, setUtterances] = useState<Utterance[]>([]);
@@ -30,9 +91,12 @@ export function useRealtimeTranscription() {
     setError(null);
 
     try {
-      // Open WebSocket to our server
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      // Open WebSocket to backend transcription endpoint.
+      const wsBase = toWebSocketUrl(API_BASE);
+      const currentHostWs =
+        `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+      const candidates = Array.from(new Set([`${wsBase}/ws`, currentHostWs]));
+      const ws = await connectWithFallback(candidates);
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
@@ -77,12 +141,6 @@ export function useRealtimeTranscription() {
           stopRecording();
         }
       };
-
-      // Wait for WebSocket to open
-      await new Promise<void>((resolve, reject) => {
-        ws.onopen = () => resolve();
-        ws.onerror = () => reject(new Error('Failed to connect'));
-      });
 
       // Get microphone and stream raw PCM at 16kHz to match server config
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
