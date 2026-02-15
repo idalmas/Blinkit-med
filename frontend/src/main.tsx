@@ -12,14 +12,12 @@ import TalkPage from './TalkPage.tsx'
 import ZoomPage from './ZoomPage.tsx'
 import InputModeToggle from './components/InputModeToggle.tsx'
 import GlobalEogPanel from './components/GlobalEogPanel.tsx'
-import EogTuningPanel from './components/EogTuningPanel.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <InputModeToggle />
       <GlobalEogPanel />
-      <EogTuningPanel />
       <Routes>
         <Route path="/" element={<Navigate to="/apps" replace />} />
         <Route path="/apps" element={<AppsPage />} />

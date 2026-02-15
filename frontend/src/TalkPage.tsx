@@ -643,7 +643,7 @@ export default function TalkPage() {
         style={{
           position: 'fixed',
           bottom: 20,
-          left: 20,
+          right: 20,
           zIndex: 30,
           borderRadius: 12,
           overflow: 'hidden',
