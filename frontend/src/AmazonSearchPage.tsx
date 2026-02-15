@@ -396,7 +396,7 @@ export default function AmazonSearchPage() {
   }, [])
 
   // No auto-search — user must navigate suggestions with winks and
-  // triple-blink to confirm before any search is triggered.
+  // double-blink to confirm before any search is triggered.
 
   /**
    * handleSuggestionClick — triggered when the user clicks a suggestion chip.
@@ -774,7 +774,7 @@ export default function AmazonSearchPage() {
 
         {status === 'ready' && products.length > 0 && (
           <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, margin: 0 }}>
-            {products.length} products found — wink to browse
+            {products.length} products found — wink to browse, double-blink to email
           </p>
         )}
       </div>

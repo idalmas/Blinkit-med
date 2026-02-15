@@ -6,7 +6,7 @@
  *
  *   - wink-left  → move highlight to the previous app card
  *   - wink-right → move highlight to the next app card
- *   - triple blink → open the highlighted app
+ *   - double blink → open the highlighted app
  *
  * The currently highlighted card is visually distinguished with a lifted
  * transform, a glowing border matching the app's brand colour, and a pulsing
@@ -210,7 +210,7 @@ export default function AppsPage() {
           lineHeight: 1.6,
         }}
       >
-        Wink left/right to browse &middot; Triple blink to open
+        Wink left/right to browse &middot; Double-blink to open
       </p>
 
       <div
