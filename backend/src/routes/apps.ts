@@ -1034,13 +1034,12 @@ apps.post("/talk/clone", async (c) => {
  */
 apps.post("/talk/generate", async (c) => {
   try {
-    const { text, referenceId } = await c.req.json<{
+    const { text } = await c.req.json<{
       text: string;
-      referenceId: string;
     }>();
 
-    if (!text || !referenceId) {
-      return c.json({ error: "Missing text or referenceId" }, 400);
+    if (!text) {
+      return c.json({ error: "Missing text" }, 400);
     }
 
     const res = await fetch(`${FISH_AUDIO_BASE}/v1/tts`, {
@@ -1051,7 +1050,7 @@ apps.post("/talk/generate", async (c) => {
       },
       body: JSON.stringify({
         text,
-        reference_id: referenceId,
+        reference_id: "3efe9252cd4c4e6185d4630cb30c8bf2",
         format: "mp3",
         mode: "s1",
       }),
