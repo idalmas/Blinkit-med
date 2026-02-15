@@ -43,7 +43,7 @@ export default function Header({ hint }: HeaderProps)  {
     >
       <h1
         style={{
-          color: '#fff',
+          color: '#111',
           fontSize: 22,
           fontWeight: 500,
           fontStyle: 'italic',
@@ -58,7 +58,7 @@ export default function Header({ hint }: HeaderProps)  {
       {hint && (
         <p
           style={{
-            color: 'rgba(255,255,255,0.25)',
+            color: 'rgba(0,0,0,0.35)',
             fontSize: 13,
             margin: 0,
             fontFamily: '"Geist", system-ui, -apple-system, sans-serif',

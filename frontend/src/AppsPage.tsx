@@ -38,6 +38,8 @@ interface AppCard {
   icon: React.ReactNode
   gradient: string
   shadow: string
+  /** Subtle brand-tinted background shown on the card when highlighted. */
+  tint: string
   description: string
   path?: string
 }
@@ -49,6 +51,7 @@ const apps: AppCard[] = [
     icon: <FaAmazon size={48} />,
     gradient: 'linear-gradient(135deg, #FF9900 0%, #FFB84D 50%, #FF9900 100%)',
     shadow: 'rgba(255, 153, 0, 0.4)',
+    tint: 'rgba(255, 153, 0, 0.45)',
     description: 'Search & scrape product data',
     path: '/apps/amazon',
   },
@@ -57,6 +60,7 @@ const apps: AppCard[] = [
     icon: <FaMapMarkerAlt size={48} />,
     gradient: 'linear-gradient(135deg, #4285F4 0%, #34A853 50%, #4285F4 100%)',
     shadow: 'rgba(66, 133, 244, 0.4)',
+    tint: 'rgba(66, 133, 244, 0.45)',
     description: 'Search places & businesses',
     path: '/apps/maps',
   },
@@ -65,6 +69,7 @@ const apps: AppCard[] = [
     icon: <FaComments size={48} />,
     gradient: 'linear-gradient(135deg, #10b981 0%, #34d399 50%, #10b981 100%)',
     shadow: 'rgba(16, 185, 129, 0.4)',
+    tint: 'rgba(16, 185, 129, 0.45)',
     description: 'Chat with GPT',
     path: '/apps/chat',
   },
@@ -73,6 +78,7 @@ const apps: AppCard[] = [
     icon: <FaSearch size={48} />,
     gradient: 'linear-gradient(135deg, #4285F4 0%, #EA4335 33%, #FBBC05 66%, #34A853 100%)',
     shadow: 'rgba(66, 133, 244, 0.4)',
+    tint: 'rgba(66, 133, 244, 0.45)',
     description: 'Search Google SERP',
     path: '/apps/web-search',
   },
@@ -81,6 +87,7 @@ const apps: AppCard[] = [
     icon: <FaDove size={48} />,
     gradient: 'linear-gradient(135deg, #FFD600 0%, #FF6D00 50%, #FFD600 100%)',
     shadow: 'rgba(255, 214, 0, 0.4)',
+    tint: 'rgba(255, 214, 0, 0.45)',
     description: 'Blink to flap & fly',
     path: '/apps/flappy-bird',
   },
@@ -89,6 +96,7 @@ const apps: AppCard[] = [
     icon: <FaBook size={48} />,
     gradient: 'linear-gradient(135deg, #D4A574 0%, #8B6914 50%, #D4A574 100%)',
     shadow: 'rgba(212, 165, 116, 0.4)',
+    tint: 'rgba(212, 165, 116, 0.45)',
     description: 'Read classic literature',
     path: '/apps/books',
   },
@@ -97,6 +105,7 @@ const apps: AppCard[] = [
     icon: <FaMicrophone size={48} />,
     gradient: 'linear-gradient(135deg, #8B5CF6 0%, #A78BFA 50%, #8B5CF6 100%)',
     shadow: 'rgba(139, 92, 246, 0.4)',
+    tint: 'rgba(139, 92, 246, 0.45)',
     description: 'Voice conversations',
     path: '/apps/talk',
   },
@@ -105,6 +114,7 @@ const apps: AppCard[] = [
     icon: <FaRunning size={48} />,
     gradient: 'linear-gradient(135deg, #e74c3c 0%, #3498db 50%, #e74c3c 100%)',
     shadow: 'rgba(231, 76, 60, 0.4)',
+    tint: 'rgba(231, 76, 60, 0.45)',
     description: 'Wink to dodge trains',
     path: '/apps/subway-surfers',
   },
@@ -167,7 +177,7 @@ export default function AppsPage() {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'linear-gradient(160deg, #0a0a0a 0%, #111827 50%, #0a0a0a 100%)',
+        background: '#E0E0E0',
         fontFamily: 'system-ui, -apple-system, sans-serif',
         display: 'flex',
         flexDirection: 'column',
@@ -195,7 +205,7 @@ export default function AppsPage() {
 
       <h2
         style={{
-          color: '#fff',
+          color: '#111',
           fontSize: 36,
           fontWeight: 700,
           marginBottom: 40,
@@ -229,18 +239,19 @@ export default function AppsPage() {
                 height: 240,
                 borderRadius: 24,
                 background: isHighlighted
-                  ? 'rgba(255, 255, 255, 0.10)'
-                  : 'rgba(255, 255, 255, 0.04)',
+                  ? app.tint
+                  : 'rgba(255, 255, 255, 0.25)',
+                backdropFilter: 'blur(24px)',
+                WebkitBackdropFilter: 'blur(24px)',
                 border: isHighlighted
-                  ? `2px solid ${app.shadow}`
-                  : '1px solid rgba(255, 255, 255, 0.08)',
+                  ? `1.5px solid ${app.shadow}`
+                  : '1.5px solid rgba(255, 255, 255, 0.5)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 20,
                 cursor: 'pointer',
-                // Highlighted cards ease-in smoothly; un-highlighted snap back instantly
                 transition: isHighlighted
                   ? 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease, background 0.3s ease, border-color 0.3s ease'
                   : 'none',
@@ -251,8 +262,8 @@ export default function AppsPage() {
                     : `floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.12}s both, float${i} 6s ease-in-out ${i * 0.8}s infinite`,
                 transform: isHighlighted ? 'translateY(-16px) scale(1.08)' : undefined,
                 boxShadow: isHighlighted
-                  ? `0 32px 64px -16px ${app.shadow}, 0 0 40px ${app.shadow}, 0 0 0 1px rgba(255,255,255,0.15)`
-                  : undefined,
+                  ? `0 32px 64px -16px ${app.shadow}, 0 0 40px ${app.shadow}, inset 0 1px 0 rgba(255,255,255,0.3)`
+                  : 'inset 0 1px 0 rgba(255,255,255,0.4), 0 4px 16px rgba(0,0,0,0.06)',
                 position: 'relative',
                 zIndex: isHighlighted ? 10 : 1,
               }}
@@ -272,7 +283,7 @@ export default function AppsPage() {
                 />
               )}
 
-              {/* Icon container with gradient background */}
+              {/* Icon container with gradient background — glows brighter when highlighted */}
               <div
                 style={{
                   width: 88,
@@ -295,7 +306,7 @@ export default function AppsPage() {
 
               <div
                 style={{
-                  color: '#fff',
+                  color: '#111',
                   fontSize: 17,
                   fontWeight: 600,
                   textAlign: 'center',
