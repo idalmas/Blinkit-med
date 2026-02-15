@@ -7,7 +7,6 @@
  *   - wink-left  → move highlight to the previous app card
  *   - wink-right → move highlight to the next app card
  *   - triple blink → open the highlighted app
- *   - long-close (~2.5 s) → navigate back to home (/)
  *
  * The currently highlighted card is visually distinguished with a lifted
  * transform, a glowing border matching the app's brand colour, and a pulsing
@@ -124,14 +123,9 @@ export default function AppsPage() {
    *   wink-right → next app
    *   wink-left  → previous app
    *   triple     → open highlighted app
-   *   long-close → go back to home
    */
   const handleBlink = useCallback(
     (type: BlinkType) => {
-      if (type === 'long-close') {
-        navigate('/')
-        return
-      }
       if (type === 'wink-right') {
         setHighlightIdx((prev) => (prev + 1) % apps.length)
       } else if (type === 'wink-left') {
@@ -208,7 +202,7 @@ export default function AppsPage() {
           lineHeight: 1.6,
         }}
       >
-        Wink left/right to browse &middot; Triple blink to open &middot; Close eyes 3 s to go home
+        Wink left/right to browse &middot; Triple blink to open
       </p>
 
       <div
