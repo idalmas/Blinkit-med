@@ -14,11 +14,13 @@
     "@supabase/supabase-js": "^2",
     "@zoom/rtms": "^1.0.2",
     "hono": "^4",
+    "jsrsasign": "^11.1.0",
     "jszip": "^3.10.1",
     "openai": "^4",
     "serialport": "^13.0.0"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/jsrsasign": "^10.5.15"
   }
 }
