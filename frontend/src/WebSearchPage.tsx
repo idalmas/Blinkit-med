@@ -178,7 +178,7 @@ export default function WebSearchPage() {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('revive-websearch-cache')
+      const stored = localStorage.getItem('blinket-websearch-cache')
       if (stored) {
         const entries = JSON.parse(stored) as [string, SearchResult[]][]
         cacheRef.current = new Map(entries)
@@ -194,7 +194,7 @@ export default function WebSearchPage() {
       if (first !== undefined) cacheRef.current.delete(first)
     }
     try {
-      localStorage.setItem('revive-websearch-cache', JSON.stringify([...cacheRef.current.entries()]))
+      localStorage.setItem('blinket-websearch-cache', JSON.stringify([...cacheRef.current.entries()]))
     } catch { /* storage full */ }
   }, [])
 

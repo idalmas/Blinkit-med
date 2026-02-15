@@ -369,7 +369,7 @@ apps.post("/send-email", async (c) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Revive <onboarding@resend.dev>",
+        from: "Blinket <onboarding@resend.dev>",
         to: [toEmail],
         subject: `Blink Selected: ${title.slice(0, 60)}`,
         html: `
@@ -379,7 +379,7 @@ apps.post("/send-email", async (c) => {
             <a href="${body.productUrl}" style="display: inline-block; background: #FF9900; color: #fff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 15px;">
               View on Amazon
             </a>
-            <p style="color: #999; font-size: 13px; margin-top: 32px;">Sent by Revive via blink selection</p>
+            <p style="color: #999; font-size: 13px; margin-top: 32px;">Sent by Blinket via blink selection</p>
           </div>
         `,
       }),

@@ -36,7 +36,7 @@ export default function ZoomPage() {
   const [zoomState, setZoomState] = useState<ZoomState>('JOIN_FORM')
   const [meetingNumber, setMeetingNumber] = useState('')
   const [meetingPassword, setMeetingPassword] = useState('')
-  const [userName, setUserName] = useState('Revive User')
+  const [userName, setUserName] = useState('Blinket User')
 
   // Zoom SDK
   const zoomContainerRef = useRef<HTMLDivElement>(null)
