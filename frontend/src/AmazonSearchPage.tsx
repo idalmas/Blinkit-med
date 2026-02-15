@@ -218,7 +218,12 @@ export default function AmazonSearchPage() {
       }
 
       // ── Product carousel mode ──
-      if (products.length === 0) return
+      if (products.length === 0) {
+        if (type === 'triple') {
+          navigate('/apps')
+        }
+        return
+      }
       if (type === 'double') {
         sendProductEmail(products[centerIdx])
       } else if (type === 'triple') {

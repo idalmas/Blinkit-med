@@ -278,6 +278,8 @@ export default function WebSearchPage() {
           closeModal()
           return
         }
+        navigate('/apps')
+        return
       }
       if (results.length === 0) return
       if (type === 'double') {

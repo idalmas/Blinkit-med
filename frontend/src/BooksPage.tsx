@@ -155,6 +155,10 @@ export default function BooksPage() {
           closeBook()
         }
       } else {
+        if (type === 'triple') {
+          navigate('/apps')
+          return
+        }
         if (books.length === 0) return
         if (type === 'wink-left') {
           setCenterIdx((p) => ((p - 1) + books.length) % books.length)
