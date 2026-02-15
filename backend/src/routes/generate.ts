@@ -1,46 +1,50 @@
 /**
  * generate.ts — POST /generate Route
  *
- * Takes a conversation dialog, performs RAG against the Supabase vector store
- * to retrieve relevant transcript context, then calls Cerebras twice
- * (different temperature/seed) to return two distinct response options.
+ * Takes a user prompt (and optional conversation history), performs kNN
+ * vector search against the Elasticsearch `person-context` index to
+ * retrieve the most relevant stored context, then calls Cerebras to
+ * return a single personalized response.
+ *
+ * The more data that has been uploaded over time, the better the context
+ * retrieval — and therefore the more personalized the response.
  *
  * Parent: mounted by src/index.ts at `/generate`
  *
  * Request body (JSON):
  *   - dialog: Array<{ role: "user" | "assistant", content: string }>
- *             The conversation so far. The last user message is used as the
- *             RAG query.
+ *             The conversation so far. The last user message is used as
+ *             the kNN query.
  *
  * Response (JSON):
- *   - options: [string, string] — two response suggestions.
- *   - context: Array<{ content: string, speaker: string | null, similarity: number }>
- *              The retrieved RAG chunks (for transparency / debugging).
+ *   - response: string           — the generated response.
+ *   - context:  Array<{ content, speaker, source, score }> — the retrieved
+ *               chunks (for transparency / debugging).
  *
- * Dependencies: lib/supabase.ts, lib/embeddings.ts, lib/cerebras.ts
+ * Dependencies: lib/elasticsearch.ts, lib/embeddings.ts, lib/cerebras.ts
  */
 
 import { Hono } from "hono";
-import { supabase } from "../lib/supabase";
+import { esClient, INDEX_NAME } from "../lib/elasticsearch";
 import { embed } from "../lib/embeddings";
-import { generateTwoOptions, type DialogMessage } from "../lib/cerebras";
+import { generateResponse, type DialogMessage } from "../lib/cerebras";
 
 const generate = new Hono();
 
 /** How many chunks to retrieve from the vector store. */
 const RAG_TOP_K = 5;
 
-/** Minimum cosine similarity to include a chunk. */
-const RAG_THRESHOLD = 0.3;
+/** How many candidates Elasticsearch considers during kNN graph walk. */
+const KNN_NUM_CANDIDATES = 100;
 
 /**
  * buildSystemPrompt — constructs the system prompt with RAG context injected.
  *
- * @param chunks  The relevant transcript chunks retrieved from Supabase.
+ * @param chunks  The relevant context chunks retrieved from Elasticsearch.
  * @returns       A system prompt string for the LLM.
  */
 function buildSystemPrompt(
-  chunks: { content: string; speaker: string | null; similarity: number }[]
+  chunks: { content: string; speaker: string | null; source: string | null; score: number }[]
 ): string {
   const contextBlock =
     chunks.length > 0
@@ -50,38 +54,43 @@ function buildSystemPrompt(
               `[${i + 1}] ${c.speaker ? `(${c.speaker}) ` : ""}${c.content}`
           )
           .join("\n")
-      : "(No relevant context found.)";
+      : "(No relevant context found yet.)";
 
-  return `You are a helpful conversational assistant. You have access to relevant transcript excerpts from a real person. Use them to ground your responses in that person's actual voice, style, and knowledge.
+  return `You are a helpful conversational assistant. You have access to relevant personal context excerpts that have been collected over time. Use them to ground your responses in that person's actual voice, style, and knowledge.
 
-Relevant transcript context:
+Relevant context:
 ${contextBlock}
 
 Instructions:
 - Respond naturally and conversationally.
-- Draw on the transcript context when relevant, but don't force it.
-- Keep responses concise (1-3 sentences unless more detail is clearly needed).`;
+- Draw on the context when relevant, but don't force it.
+- Keep responses concise (1-3 sentences unless more detail is clearly needed).
+- As more context becomes available over time, your responses will become more personalized.`;
 }
 
 /**
- * POST / — generate two response options for a dialog.
+ * POST / — generate a personalized response for a dialog.
  *
  * @input  { dialog: DialogMessage[] }
- * @output { options: [string, string], context: object[] } | { error: string }
+ * @output { response: string, context: object[] } | { error: string }
  */
 generate.post("/", async (c) => {
   try {
     const body = await c.req.json<{ dialog?: DialogMessage[] }>();
 
     /* ── Validate ──────────────────────────────────────────── */
-    if (!body.dialog || !Array.isArray(body.dialog) || body.dialog.length === 0) {
+    if (
+      !body.dialog ||
+      !Array.isArray(body.dialog) ||
+      body.dialog.length === 0
+    ) {
       return c.json(
-        { error: "\"dialog\" is required and must be a non-empty array." },
+        { error: '"dialog" is required and must be a non-empty array.' },
         400
       );
     }
 
-    /* ── Find the last user message to use as RAG query ───── */
+    /* ── Find the last user message to use as kNN query ───── */
     const lastUserMsg = [...body.dialog]
       .reverse()
       .find((m) => m.role === "user");
@@ -96,32 +105,37 @@ generate.post("/", async (c) => {
     /* ── Embed the query ───────────────────────────────────── */
     const queryEmbedding = await embed(lastUserMsg.content);
 
-    /* ── RAG: similarity search ────────────────────────────── */
-    const { data: chunks, error: ragError } = await supabase.rpc(
-      "match_documents",
-      {
-        query_embedding: JSON.stringify(queryEmbedding),
-        match_threshold: RAG_THRESHOLD,
-        match_count: RAG_TOP_K,
-      }
-    );
+    /* ── kNN search against Elasticsearch ──────────────────── */
+    const searchResult = await esClient.search({
+      index: INDEX_NAME,
+      knn: {
+        field: "embedding",
+        query_vector: queryEmbedding,
+        k: RAG_TOP_K,
+        num_candidates: KNN_NUM_CANDIDATES,
+      },
+      _source: ["content", "speaker", "source"],
+    });
 
-    if (ragError) {
-      console.error("RAG search error:", ragError);
-      // Don't fail — just proceed without context.
-    }
-
-    const relevantChunks: {
-      content: string;
-      speaker: string | null;
-      similarity: number;
-    }[] = chunks ?? [];
+    const relevantChunks = searchResult.hits.hits.map((hit) => {
+      const src = hit._source as {
+        content: string;
+        speaker: string | null;
+        source: string | null;
+      };
+      return {
+        content: src.content,
+        speaker: src.speaker,
+        source: src.source,
+        score: hit._score ?? 0,
+      };
+    });
 
     /* ── Build prompt & generate ───────────────────────────── */
     const systemPrompt = buildSystemPrompt(relevantChunks);
-    const options = await generateTwoOptions(systemPrompt, body.dialog);
+    const response = await generateResponse(systemPrompt, body.dialog);
 
-    return c.json({ options, context: relevantChunks });
+    return c.json({ response, context: relevantChunks });
   } catch (err) {
     console.error("Generate error:", err);
     return c.json({ error: "Internal server error." }, 500);
