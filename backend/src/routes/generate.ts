@@ -12,6 +12,8 @@
  * Parent: mounted by src/index.ts at `/generate`
  *
  * Request body (JSON):
+ *   - person: string — the persona whose context to search (required,
+ *             e.g. "ian", "hagrid"). Used as a kNN filter.
  *   - dialog: Array<{ role: "user" | "assistant", content: string }>
  *             The conversation so far. The last user message is used as
  *             the kNN query.
@@ -71,14 +73,24 @@ Instructions:
 /**
  * POST / — generate a personalized response for a dialog.
  *
- * @input  { dialog: DialogMessage[] }
+ * @input  { person: string, dialog: DialogMessage[] }
  * @output { response: string, context: object[] } | { error: string }
  */
 generate.post("/", async (c) => {
   try {
-    const body = await c.req.json<{ dialog?: DialogMessage[] }>();
+    const body = await c.req.json<{
+      person?: string;
+      dialog?: DialogMessage[];
+    }>();
 
     /* ── Validate ──────────────────────────────────────────── */
+    if (!body.person || body.person.trim().length === 0) {
+      return c.json(
+        { error: '"person" is required and must be a non-empty string.' },
+        400
+      );
+    }
+
     if (
       !body.dialog ||
       !Array.isArray(body.dialog) ||
@@ -89,6 +101,8 @@ generate.post("/", async (c) => {
         400
       );
     }
+
+    const person = body.person.trim().toLowerCase();
 
     /* ── Find the last user message to use as kNN query ───── */
     const lastUserMsg = [...body.dialog]
@@ -105,7 +119,7 @@ generate.post("/", async (c) => {
     /* ── Embed the query ───────────────────────────────────── */
     const queryEmbedding = await embed(lastUserMsg.content);
 
-    /* ── kNN search against Elasticsearch ──────────────────── */
+    /* ── kNN search against Elasticsearch (scoped to person) ── */
     const searchResult = await esClient.search({
       index: INDEX_NAME,
       knn: {
@@ -113,6 +127,7 @@ generate.post("/", async (c) => {
         query_vector: queryEmbedding,
         k: RAG_TOP_K,
         num_candidates: KNN_NUM_CANDIDATES,
+        filter: { term: { person } },
       },
       _source: ["content", "speaker", "source"],
     });
