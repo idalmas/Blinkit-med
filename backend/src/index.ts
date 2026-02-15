@@ -30,7 +30,6 @@ import { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 import { ensureIndex, ensurePersonField } from "./lib/elasticsearch";
 import upload from "./routes/upload";
 import generate from "./routes/generate";
@@ -41,6 +40,12 @@ import apps from "./routes/apps";
 import zoom from "./routes/zoom";
 
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || "";
+let deepgramSdk: any = null;
+try {
+  deepgramSdk = require("@deepgram/sdk");
+} catch {
+  // Optional dependency; EOG pipeline works without Deepgram installed.
+}
 
 const app = new Hono();
 const { upgradeWebSocket, websocket } = createBunWebSocket();
@@ -221,36 +226,17 @@ app.route("/zoom", zoom);
  */
 app.get(
   "/ws",
-  upgradeWebSocket(() => ({
-    onOpen(_, ws) {
-      signalClients.add(ws);
-      ws.send(JSON.stringify({ type: "connected" }));
-    },
-    onMessage(event, ws) {
-      try {
-        const raw = event.data;
-        if (typeof raw !== "string") return;
-        const data = JSON.parse(raw);
-        if (data.type === "signal") {
-          const processed = eogProcessor.process(data as SignalInput);
-          const payload = JSON.stringify(processed);
-          // Fan out to all other connected clients.
-          for (const client of signalClients) {
-            if (client === ws) continue;
-            try {
-              client.send(payload);
-            } catch {
-              // Ignore send errors for stale sockets; onClose will prune.
-            }
-          }
-        } else if (data.type === "subscribe") {
-          ws.send(JSON.stringify({ type: "subscribed", eogConfig: eogProcessor.getConfig() }));
-        } else if (data.type === "eog-config") {
-          eogProcessor.updateConfig(data.config ?? {});
-          ws.send(JSON.stringify({ type: "eog-config-updated", eogConfig: eogProcessor.getConfig() }));
-        }
+  upgradeWebSocket(() => {
+    let dgConnection: any = null;
 
-        const deepgram = createClient(DEEPGRAM_API_KEY);
+    return {
+      onOpen(_, ws) {
+        signalClients.add(ws);
+        ws.send(JSON.stringify({ type: "connected" }));
+
+        if (!DEEPGRAM_API_KEY || !deepgramSdk) return;
+
+        const deepgram = deepgramSdk.createClient(DEEPGRAM_API_KEY);
         dgConnection = deepgram.listen.live({
           model: "nova-2",
           language: "en",
@@ -263,11 +249,11 @@ app.get(
           utterance_end_ms: 1000,
         });
 
-        dgConnection.on(LiveTranscriptionEvents.Open, () => {
+        dgConnection.on(deepgramSdk.LiveTranscriptionEvents.Open, () => {
           console.log("[deepgram] Connection opened");
         });
 
-        dgConnection.on(LiveTranscriptionEvents.Transcript, (data: any) => {
+        dgConnection.on(deepgramSdk.LiveTranscriptionEvents.Transcript, (data: any) => {
           const alt = data.channel?.alternatives?.[0];
           if (!alt || !alt.transcript) return;
 
@@ -279,26 +265,22 @@ app.get(
             confidence: w.confidence,
           }));
 
-          if (data.is_final) {
-            const speakerVals = words.map((w: any) => w.speaker);
-            const unique = [...new Set(speakerVals)];
-            console.log(`[deepgram] final transcript: "${alt.transcript}" speakers: [${unique}]`);
-          }
-
-          ws.send(JSON.stringify({
-            type: "transcript",
-            transcript: alt.transcript,
-            words,
-            is_final: data.is_final ?? false,
-          }));
+          ws.send(
+            JSON.stringify({
+              type: "transcript",
+              transcript: alt.transcript,
+              words,
+              is_final: data.is_final ?? false,
+            })
+          );
         });
 
-        dgConnection.on(LiveTranscriptionEvents.Error, (err: any) => {
+        dgConnection.on(deepgramSdk.LiveTranscriptionEvents.Error, (err: any) => {
           console.error("[deepgram] Error:", err);
           ws.send(JSON.stringify({ type: "error", message: "Deepgram error" }));
         });
 
-        dgConnection.on(LiveTranscriptionEvents.Close, () => {
+        dgConnection.on(deepgramSdk.LiveTranscriptionEvents.Close, () => {
           console.log("[deepgram] Connection closed");
         });
       },
@@ -306,13 +288,11 @@ app.get(
       onMessage(event, ws) {
         // Binary data → forward to Deepgram for transcription
         if (typeof event.data !== "string") {
-          if (dgConnection) {
-            dgConnection.send(event.data);
-          }
+          if (dgConnection) dgConnection.send(event.data);
           return;
         }
 
-        // JSON string data → handle signal processing and subscribe
+        // JSON string data → handle signal processing and tuning messages
         try {
           const data = JSON.parse(event.data);
           if (data.type === "signal") {
@@ -327,13 +307,14 @@ app.get(
               }
             }
           } else if (data.type === "subscribe") {
-            ws.send(JSON.stringify({ type: "subscribed" }));
+            ws.send(JSON.stringify({ type: "subscribed", eogConfig: eogProcessor.getConfig() }));
+          } else if (data.type === "eog-config") {
+            eogProcessor.updateConfig(data.config ?? {});
+            ws.send(JSON.stringify({ type: "eog-config-updated", eogConfig: eogProcessor.getConfig() }));
           }
         } catch {
           // Non-JSON string → try forwarding to Deepgram as audio
-          if (dgConnection) {
-            dgConnection.send(Buffer.from(event.data));
-          }
+          if (dgConnection) dgConnection.send(Buffer.from(event.data));
         }
       },
 
@@ -353,7 +334,7 @@ app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
 
 /* ── Bootstrap & Export for Bun ─────────────────────────────── */
 
-const PORT = Number(process.env.PORT) || 3003;
+const PORT = Number(process.env.PORT) || 3001;
 
 // Create the Elasticsearch index if it doesn't exist, then add the `person`
 // field to the mapping (safe no-op if it already exists), then start serving.
