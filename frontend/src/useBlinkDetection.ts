@@ -20,7 +20,7 @@ const WINK_COOLDOWN_MS = 500     // cooldown between wink events
 
 // Long-close detection — both eyes closed for ~2.5 seconds
 // Uses smoothed scores + a grace period so momentary flickers don't reset the timer.
-const LONG_CLOSE_MS = 2500
+const LONG_CLOSE_MS = 2000
 const LONG_CLOSE_THRESHOLD = 0.28   // lower than BLINK_THRESHOLD — relaxed lids hover lower
 const LONG_CLOSE_GRACE_MS = 300     // allow eyes to flicker open briefly without reset
 const LONG_CLOSE_MIN_EYE_SCORE = 0.34 // require each eye to be individually closed

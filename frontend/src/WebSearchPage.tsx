@@ -26,10 +26,9 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaSearch, FaArrowLeft, FaGlobe, FaExternalLinkAlt } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import { API_BASE, PERSON } from './config'
 
-const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
 const POLL_INTERVAL = 3000
-const PERSON = (import.meta.env.VITE_PERSON ?? 'ian').trim().toLowerCase()
 
 interface SearchResult {
   title?: string
@@ -286,7 +285,7 @@ export default function WebSearchPage() {
           setHighlightedSuggestionIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
         } else if (type === 'wink-left') {
           setHighlightedSuggestionIdx((prev) => Math.max(prev - 1, 0))
-        } else if (type === 'triple') {
+        } else if (type === 'double') {
           const idx = highlightedSuggestionIdxRef.current
           if (idx >= 0 && idx < suggestions.length) {
             suggestionClickRef.current(suggestions[idx])
@@ -300,6 +299,8 @@ export default function WebSearchPage() {
           closeModal()
           return
         }
+        navigate('/apps')
+        return
       }
       if (results.length === 0) return
       if (type === 'double') {
@@ -884,7 +885,7 @@ export default function WebSearchPage() {
         )}
         {suggestions.length > 0 && !(status === 'ready' && results.length > 0) && (
           <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: 12, margin: 0 }}>
-            Wink left/right to pick a suggestion, then triple blink to search
+            Wink left/right to pick a suggestion, then double-blink to search
           </p>
         )}
 
@@ -1254,7 +1255,7 @@ export default function WebSearchPage() {
                 marginLeft: 8,
               }}
             >
-              Triple-blink or press Esc to close
+              Triple-blink or press Esc to go back
             </span>
             <button
               onClick={closeModal}

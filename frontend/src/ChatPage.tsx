@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Webcam from 'react-webcam'
 import { FaArrowLeft, FaPaperPlane } from 'react-icons/fa'
 
 const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import { API_BASE, PERSON } from './config'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -15,7 +18,53 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const [highlightedIdx, setHighlightedIdx] = useState(0)
+  const highlightedIdxRef = useRef(0)
+  const handleSendRef = useRef<() => void>(() => {})
+  const suggestionClickRef = useRef<(s: string) => void>(() => {})
+
+  // Keep refs in sync
+  useEffect(() => { highlightedIdxRef.current = highlightedIdx }, [highlightedIdx])
+
+  const handleBlink = useCallback(
+    (type: BlinkType) => {
+      if (type === 'long-close' || type === 'triple') {
+        navigate('/apps')
+        return
+      }
+
+      // Suggestion navigation mode (when suggestions are visible)
+      if (suggestions.length > 0) {
+        if (type === 'wink-right') {
+          setHighlightedIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
+        } else if (type === 'wink-left') {
+          setHighlightedIdx((prev) => Math.max(prev - 1, 0))
+        } else if (type === 'double') {
+          const idx = highlightedIdxRef.current
+          if (idx >= 0 && idx < suggestions.length) {
+            suggestionClickRef.current(suggestions[idx])
+          }
+        }
+        return
+      }
+
+      // Chat mode — scroll and send
+      if (type === 'wink-left') {
+        messagesContainerRef.current?.scrollBy({ top: -300, behavior: 'smooth' })
+      } else if (type === 'wink-right') {
+        messagesContainerRef.current?.scrollBy({ top: 300, behavior: 'smooth' })
+      } else if (type === 'double') {
+        handleSendRef.current()
+      }
+    },
+    [navigate, suggestions, messages.length]
+  )
+
+  const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -29,10 +78,38 @@ export default function ChatPage() {
     inputRef.current?.focus()
   }, [])
 
+  // Reusable function to fetch suggestions from getContext
+  const fetchSuggestions = useCallback(async (contextText?: string) => {
+    setSuggestionsLoading(true)
+    setHighlightedIdx(0)
+    try {
+      const res = await fetch(`${API_BASE}/getContext`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app: 'chat', person: PERSON, k: 5, ...(contextText ? { text: contextText } : {}) }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      const data = await res.json()
+      if (Array.isArray(data.result)) {
+        setSuggestions(data.result)
+      }
+    } catch {
+      // Silently fail — suggestions are optional
+    } finally {
+      setSuggestionsLoading(false)
+    }
+  }, [])
+
+  // Fetch initial suggestions on mount
+  useEffect(() => {
+    fetchSuggestions()
+  }, [fetchSuggestions])
+
   const handleSend = async () => {
     const text = input.trim()
     if (!text || isStreaming) return
 
+    setSuggestions([]) // Hide suggestions once user sends a message
     const userMsg: Message = { role: 'user', content: text }
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
@@ -109,7 +186,30 @@ export default function ChatPage() {
 
     setIsStreaming(false)
     inputRef.current?.focus()
+
+    // Fetch new follow-up suggestions based on the last assistant response
+    setMessages((prev) => {
+      const lastAssistant = [...prev].reverse().find((m) => m.role === 'assistant')
+      if (lastAssistant?.content) {
+        fetchSuggestions(lastAssistant.content)
+      }
+      return prev
+    })
   }
+
+  // Keep ref in sync so blink handler can call latest version
+  handleSendRef.current = handleSend
+
+  const handleSuggestionClick = useCallback((suggestion: string) => {
+    setInput(suggestion)
+    // Auto-send after a tick so the input state updates
+    setTimeout(() => {
+      handleSendRef.current()
+    }, 0)
+  }, [])
+
+  // Keep ref in sync so blink handler can call latest version
+  suggestionClickRef.current = handleSuggestionClick
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -170,6 +270,7 @@ export default function ChatPage() {
 
       {/* Messages area */}
       <div
+        ref={messagesContainerRef}
         style={{
           flex: 1,
           overflow: 'auto',
@@ -198,7 +299,69 @@ export default function ChatPage() {
               </svg>
             </div>
             <div style={{ fontSize: 18, fontWeight: 500 }}>Start a conversation</div>
-            <div style={{ fontSize: 14 }}>Type a message below to chat with GPT</div>
+            <div style={{ fontSize: 14 }}>
+              {suggestionsLoading ? 'Loading suggestions...' : 'Pick a suggestion or type a message'}
+            </div>
+
+            {/* Suggestion chips */}
+            {suggestions.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  justifyContent: 'center',
+                  maxWidth: 640,
+                  marginTop: 16,
+                }}
+              >
+                {suggestions.map((s, i) => {
+                  const isHighlighted = i === highlightedIdx
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => handleSuggestionClick(s)}
+                      style={{
+                        background: isHighlighted ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.06)',
+                        border: isHighlighted
+                          ? '1px solid rgba(99, 102, 241, 0.5)'
+                          : '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 12,
+                        color: isHighlighted ? '#fff' : 'rgba(255,255,255,0.7)',
+                        padding: '10px 16px',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        fontFamily: 'inherit',
+                        maxWidth: 300,
+                        textAlign: 'left',
+                        lineHeight: 1.4,
+                        boxShadow: isHighlighted ? '0 0 12px rgba(99, 102, 241, 0.3)' : 'none',
+                        transform: isHighlighted ? 'scale(1.05)' : 'scale(1)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)'
+                        e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)'
+                        e.currentTarget.style.color = '#fff'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isHighlighted) {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                          e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'
+                          e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)'
+                          e.currentTarget.style.color = '#fff'
+                        }
+                      }}
+                    >
+                      {s}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -263,6 +426,77 @@ export default function ChatPage() {
             </div>
           </div>
         ))}
+        {/* Follow-up suggestion chips (after messages) */}
+        {messages.length > 0 && suggestions.length > 0 && !isStreaming && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              padding: '12px 24px',
+              maxWidth: 720,
+              margin: '0 auto',
+              width: '100%',
+            }}
+          >
+            <div style={{ width: '100%', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>
+              Suggested follow-ups
+            </div>
+            {suggestions.map((s, i) => {
+              const isHighlighted = i === highlightedIdx
+              return (
+                <button
+                  key={i}
+                  onClick={() => handleSuggestionClick(s)}
+                  style={{
+                    background: isHighlighted ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.06)',
+                    border: isHighlighted
+                      ? '1px solid rgba(99, 102, 241, 0.5)'
+                      : '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 12,
+                    color: isHighlighted ? '#fff' : 'rgba(255,255,255,0.7)',
+                    padding: '8px 14px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    fontFamily: 'inherit',
+                    maxWidth: 300,
+                    textAlign: 'left',
+                    lineHeight: 1.4,
+                    boxShadow: isHighlighted ? '0 0 12px rgba(99, 102, 241, 0.3)' : 'none',
+                    transform: isHighlighted ? 'scale(1.05)' : 'scale(1)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)'
+                    e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)'
+                    e.currentTarget.style.color = '#fff'
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isHighlighted) {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                      e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+                    } else {
+                      e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'
+                      e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)'
+                      e.currentTarget.style.color = '#fff'
+                    }
+                  }}
+                >
+                  {s}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Loading indicator for follow-up suggestions */}
+        {messages.length > 0 && suggestionsLoading && !isStreaming && (
+          <div style={{ padding: '12px 24px', maxWidth: 720, margin: '0 auto', width: '100%' }}>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>Loading follow-up suggestions...</div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -340,6 +574,46 @@ export default function ChatPage() {
           >
             <FaPaperPlane size={16} />
           </button>
+        </div>
+        <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'center', margin: '8px 0 0' }}>
+          Wink to scroll &middot; Double-blink to send &middot; Triple-blink to go back
+        </p>
+      </div>
+
+      {/* Webcam preview */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 20,
+          right: 20,
+          width: 160,
+          height: 120,
+          borderRadius: 12,
+          overflow: 'hidden',
+          border: '2px solid rgba(255,255,255,0.15)',
+          zIndex: 10,
+        }}
+      >
+        <Webcam
+          ref={webcamRef}
+          audio={false}
+          videoConstraints={{ facingMode: 'user', width: 640, height: 480 }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          mirrored
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 4,
+            left: 4,
+            fontSize: 10,
+            color: blinkStatus === 'detecting' ? '#4ade80' : 'rgba(255,255,255,0.5)',
+            background: 'rgba(0,0,0,0.6)',
+            padding: '2px 6px',
+            borderRadius: 4,
+          }}
+        >
+          {blinkStatus === 'loading' ? 'Loading...' : blinkStatus === 'detecting' ? 'Blink active' : blinkStatus}
         </div>
       </div>
 

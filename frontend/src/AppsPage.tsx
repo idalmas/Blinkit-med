@@ -6,7 +6,7 @@
  *
  *   - wink-left  → move highlight to the previous app card
  *   - wink-right → move highlight to the next app card
- *   - triple blink → open the highlighted app
+ *   - double blink → open the highlighted app
  *
  * The currently highlighted card is visually distinguished with a lifted
  * transform, a glowing border matching the app's brand colour, and a pulsing
@@ -25,6 +25,7 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 /** Describes a single app card in the launcher grid. */
 interface AppCard {
@@ -130,7 +131,7 @@ export default function AppsPage() {
    * Mapping:
    *   wink-right → next app
    *   wink-left  → previous app
-   *   triple     → open highlighted app
+   *   double     → open highlighted app
    */
   const handleBlink = useCallback(
     (type: BlinkType) => {
@@ -138,7 +139,7 @@ export default function AppsPage() {
         setHighlightIdx((prev) => (prev + 1) % apps.length)
       } else if (type === 'wink-left') {
         setHighlightIdx((prev) => (prev - 1 + apps.length) % apps.length)
-      } else if (type === 'triple') {
+      } else if (type === 'double') {
         const app = apps[highlightIdx]
         if (app?.path) navigate(app.path)
       }
@@ -210,7 +211,7 @@ export default function AppsPage() {
           lineHeight: 1.6,
         }}
       >
-        Wink left/right to browse &middot; Triple blink to open
+        Wink left/right to browse &middot; Double-blink to open
       </p>
 
       <div
