@@ -324,6 +324,64 @@ app.post('/api/zoom/create-meeting', async (req, res) => {
   }
 });
 
+app.post('/api/zoom/end-all-meetings', async (req, res) => {
+  try {
+    const userId = String(req.body?.userId || 'me').trim() || 'me';
+    const accessToken = await getZoomAccessToken();
+
+    // List live meetings
+    const listRes = await fetch(
+      `https://api.zoom.us/v2/users/${encodeURIComponent(userId)}/meetings?type=live&page_size=50`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+
+    if (!listRes.ok) {
+      const text = await listRes.text();
+      return res.status(listRes.status).json({ error: `Failed to list meetings: ${text}` });
+    }
+
+    const listData = (await listRes.json()) as { meetings?: { id: number }[] };
+    const meetings = listData.meetings ?? [];
+
+    // End each live meeting
+    const results: { id: number; ended: boolean; error?: string }[] = [];
+    for (const meeting of meetings) {
+      try {
+        const endRes = await fetch(
+          `https://api.zoom.us/v2/meetings/${meeting.id}/status`,
+          {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ action: 'end' }),
+          },
+        );
+        results.push({
+          id: meeting.id,
+          ended: endRes.ok || endRes.status === 204,
+          error: endRes.ok || endRes.status === 204 ? undefined : await endRes.text(),
+        });
+      } catch (err) {
+        results.push({
+          id: meeting.id,
+          ended: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    console.log(`[zoom] Ended ${results.filter((r) => r.ended).length}/${meetings.length} live meetings`);
+    return res.json({ ended: results.filter((r) => r.ended).length, total: meetings.length, results });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return res.status(500).json({ error: message });
+  }
+});
+
 rtms.onWebhookEvent(({ event, payload }) => {
   appendRtmsLog('webhook_event', { event, payload });
 
@@ -373,27 +431,26 @@ rtms.onWebhookEvent(({ event, payload }) => {
   client.onVideoData((_data: unknown, size: number, timestamp: number, metadata: unknown) =>
     appendRtmsLog('video_data', { streamId, size, timestamp, metadata }),
   );
-  client.onTranscriptData((data: unknown, size: number, timestamp: number, metadata: unknown) =>
-    {
-      const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
-      const transcript = extractTranscriptText(text);
-      if (transcript) {
-        appendRtmsTranscript({
-          username: extractUsername(metadata, text),
-          conferenceTime: toConferenceIso(timestamp),
-          text: transcript,
-          streamId,
-        });
-      }
-
-      appendRtmsLog('transcript_data', {
+  client.onTranscriptData((data: unknown, size: number, timestamp: number, metadata: unknown) => {
+    const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
+    const transcript = extractTranscriptText(text);
+    if (transcript) {
+      appendRtmsTranscript({
+        username: extractUsername(metadata, text),
+        conferenceTime: toConferenceIso(timestamp),
+        text: transcript,
         streamId,
-        size,
-        timestamp,
-        metadata,
-        data: text,
       });
-    },
+    }
+
+    appendRtmsLog('transcript_data', {
+      streamId,
+      size,
+      timestamp,
+      metadata,
+      data: text,
+    });
+  },
   );
   client.onLeave((reason: unknown) => {
     appendRtmsLog('leave', { streamId, reason });

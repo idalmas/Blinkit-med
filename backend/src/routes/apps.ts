@@ -401,6 +401,101 @@ apps.post("/send-email", async (c) => {
 });
 
 /**
+ * POST /apps/zoom/send-invite
+ *
+ * Sends a Zoom meeting invite email to a specific recipient.
+ *
+ * Request body (JSON):
+ *   - toEmail:       string (required)
+ *   - toName:        string (optional)
+ *   - topic:         string (required)
+ *   - meetingNumber: string (required)
+ *   - joinUrl:       string (required)
+ *   - password:      string (optional)
+ *
+ * Response (JSON):
+ *   200: { success: true, id: string }
+ */
+apps.post("/zoom/send-invite", async (c) => {
+  try {
+    const resendKey = process.env.RESEND_API_KEY;
+    if (!resendKey) {
+      return c.json({ error: "Missing RESEND_API_KEY env var." }, 500);
+    }
+
+    const body = await c.req.json<{
+      toEmail?: string;
+      toName?: string;
+      topic?: string;
+      meetingNumber?: string;
+      joinUrl?: string;
+      password?: string;
+    }>();
+
+    const toEmail = String(body.toEmail || "").trim();
+    const toName = String(body.toName || "").trim() || "there";
+    const topic = String(body.topic || "").trim();
+    const meetingNumber = String(body.meetingNumber || "").trim();
+    const joinUrl = String(body.joinUrl || "").trim();
+    const password = String(body.password || "").trim();
+
+    if (!toEmail || !topic || !meetingNumber || !joinUrl) {
+      return c.json(
+        { error: "\"toEmail\", \"topic\", \"meetingNumber\", and \"joinUrl\" are required." },
+        400
+      );
+    }
+
+    const passcodeLine = password
+      ? `<p style="margin: 6px 0 0; color: #444;"><strong>Passcode:</strong> ${password}</p>`
+      : "";
+
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: "Revive <onboarding@resend.dev>",
+        to: [toEmail],
+        subject: `Zoom Invite: ${topic.slice(0, 80)}`,
+        html: `
+          <div style="font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px;">
+            <h2 style="margin: 0 0 10px; color: #111;">Hi ${toName},</h2>
+            <p style="margin: 0 0 16px; color: #333;">You've been invited to join a Revive Zoom session.</p>
+
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; margin-bottom: 18px;">
+              <p style="margin: 0; color: #111;"><strong>Topic:</strong> ${topic}</p>
+              <p style="margin: 6px 0 0; color: #444;"><strong>Meeting ID:</strong> ${meetingNumber}</p>
+              ${passcodeLine}
+            </div>
+
+            <a href="${joinUrl}" style="display: inline-block; background: #2563eb; color: #fff; text-decoration: none; padding: 12px 20px; border-radius: 8px; font-weight: 600;">
+              Join Zoom Meeting
+            </a>
+
+            <p style="margin: 18px 0 0; color: #888; font-size: 13px;">Sent by Revive accessibility flow.</p>
+          </div>
+        `,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[zoom/send-invite] Resend error:", res.status, errText);
+      return c.json({ error: "Failed to send invite email.", details: errText }, 502);
+    }
+
+    const data = await res.json();
+    return c.json({ success: true, id: data.id });
+  } catch (err) {
+    console.error("[zoom/send-invite] Error:", err);
+    return c.json({ error: "Internal server error." }, 500);
+  }
+});
+
+/**
  * POST /apps/maps-search
  *
  * Searches Google Maps for a place/location via BrightData.
