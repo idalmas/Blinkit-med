@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FaArrowLeft, FaVideo } from 'react-icons/fa'
 import ZoomMtgEmbedded from '@zoom/meetingsdk/embedded'
+import Webcam from 'react-webcam'
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import { API_BASE, PERSON } from './config'
 
 type ZoomClient = ReturnType<typeof ZoomMtgEmbedded.createClient>
 
@@ -21,6 +24,19 @@ interface RtmsLogsResponse {
   logs: string[]
 }
 
+interface RtmsTranscriptEntry {
+  username: string
+  conferenceTime: string
+  text: string
+  streamId: string
+}
+
+interface RtmsRecentTranscriptsResponse {
+  size: number
+  count: number
+  items: RtmsTranscriptEntry[]
+}
+
 function formatUnknownError(err: unknown): string {
   if (err instanceof Error) return err.message
   if (typeof err === 'string') return err
@@ -32,10 +48,13 @@ function formatUnknownError(err: unknown): string {
 }
 
 export default function ZoomPage() {
+  const DOUBLE_BLINK_COOLDOWN_MS = 1500
   const navigate = useNavigate()
   const zoomRootRef = useRef<HTMLDivElement | null>(null)
   const clientRef = useRef<ZoomClient | null>(null)
   const clientInitializedRef = useRef(false)
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
+  const lastDoubleBlinkAtRef = useRef(0)
 
   const [topic, setTopic] = useState('Quick Meeting')
   const [hostUserId, setHostUserId] = useState('me')
@@ -45,10 +64,18 @@ export default function ZoomPage() {
   const [zak, setZak] = useState('')
   const [hostEmail, setHostEmail] = useState('')
   const [rtmsLogs, setRtmsLogs] = useState<string[]>([])
+  const [recentTranscripts, setRecentTranscripts] = useState<RtmsTranscriptEntry[]>([])
   const [rtmsError, setRtmsError] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const [intentStatus, setIntentStatus] = useState('Double-blink to establish intent')
+  const [intentError, setIntentError] = useState('')
+  const [intentOptions, setIntentOptions] = useState<string[]>([])
+  const [intentOptionIdx, setIntentOptionIdx] = useState(0)
+  const [intentBusy, setIntentBusy] = useState(false)
+  const [ttsBusy, setTtsBusy] = useState(false)
+  const [ttsUrl, setTtsUrl] = useState<string | null>(null)
 
   const createMeeting = async () => {
     setIsBusy(true)
@@ -172,11 +199,172 @@ export default function ZoomPage() {
     }
   }
 
+  const loadRecentTranscripts = async () => {
+    try {
+      const response = await fetch('/api/zoom/rtms/recent-transcripts')
+      const data = (await response.json()) as RtmsRecentTranscriptsResponse
+      setRecentTranscripts(Array.isArray(data.items) ? data.items : [])
+      setRtmsError('')
+    } catch (err) {
+      setRtmsError(formatUnknownError(err))
+    }
+  }
+
+  const triggerIntent = async () => {
+    if (intentBusy) return
+
+    const items = recentTranscripts
+      .map((item) => ({
+        username: String(item.username || '').trim() || 'unknown',
+        conferenceTime: String(item.conferenceTime || '').trim(),
+        text: String(item.text || '').trim(),
+      }))
+      .filter((item) => item.text.length > 0)
+
+    if (items.length === 0) {
+      setIntentError('No RTMS transcript text available yet.')
+      setIntentStatus('Waiting for transcript...')
+      return
+    }
+
+    setIntentBusy(true)
+    setIntentError('')
+    setIntentStatus('Establishing intent...')
+
+    try {
+      const targetSpeaker =
+        [...items].reverse().find((item) => item.username !== 'unknown')?.username ??
+        items[items.length - 1].username
+
+      const transcript = items
+        .map((item) => `${item.username}: ${item.text}`)
+        .join('\n')
+
+      const speakerCount = new Set(items.map((item) => item.username)).size || 1
+
+      const response = await fetch(`${API_BASE}/getContext`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app: 'Talk',
+          person: PERSON,
+          text: JSON.stringify({
+            transcript,
+            selectedSpeaker: targetSpeaker,
+            speakerCount,
+          }),
+          k: 5,
+        }),
+      })
+
+      if (!response.ok) throw new Error('Failed to generate intent responses')
+      const data = await response.json()
+      const result = Array.isArray(data.result)
+        ? data.result.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+        : []
+
+      if (result.length === 0) {
+        setIntentOptions([])
+        setIntentOptionIdx(0)
+        setIntentStatus('Intent established, but no responses generated.')
+        return
+      }
+
+      setIntentOptions(result)
+      setIntentOptionIdx(0)
+      setIntentStatus(`Intent established for ${targetSpeaker}. Wink to browse.`)
+    } catch (err) {
+      setIntentError(formatUnknownError(err))
+      setIntentStatus('Intent failed. Double-blink to retry.')
+    } finally {
+      setIntentBusy(false)
+    }
+  }
+
+  const speakIntentOption = async (text: string) => {
+    if (!text.trim() || ttsBusy) return
+
+    setTtsBusy(true)
+    setIntentError('')
+    setIntentStatus('Generating speech for selected response...')
+
+    try {
+      const response = await fetch(`${API_BASE}/apps/talk/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Audio generation failed')
+      }
+
+      const blob = await response.blob()
+      const nextUrl = URL.createObjectURL(blob)
+
+      if (ttsUrl) URL.revokeObjectURL(ttsUrl)
+      setTtsUrl(nextUrl)
+
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.src = nextUrl
+        await ttsAudioRef.current.play()
+      }
+
+      setIntentStatus('Playing selected response. Route browser audio to virtual mic.')
+    } catch (err) {
+      setIntentError(formatUnknownError(err))
+      setIntentStatus('Could not speak selected response.')
+    } finally {
+      setTtsBusy(false)
+    }
+  }
+
   useEffect(() => {
     loadRtmsLogs()
-    const timer = setInterval(loadRtmsLogs, 2000)
+    loadRecentTranscripts()
+    const timer = setInterval(() => {
+      loadRtmsLogs()
+      loadRecentTranscripts()
+    }, 2000)
     return () => clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (ttsUrl) URL.revokeObjectURL(ttsUrl)
+    }
+  }, [ttsUrl])
+
+  const handleBlink = (type: BlinkType) => {
+    if (type === 'long-close' || type === 'triple') {
+      navigate('/apps')
+      return
+    }
+
+    if (type === 'double') {
+      const now = Date.now()
+      if (now - lastDoubleBlinkAtRef.current < DOUBLE_BLINK_COOLDOWN_MS) {
+        return
+      }
+      lastDoubleBlinkAtRef.current = now
+
+      if (intentOptions.length > 0) {
+        void speakIntentOption(intentOptions[intentOptionIdx] ?? '')
+      } else {
+        void triggerIntent()
+      }
+      return
+    }
+
+    if (intentOptions.length === 0) return
+    if (type === 'wink-left') {
+      setIntentOptionIdx((prev) => (prev - 1 + intentOptions.length) % intentOptions.length)
+    } else if (type === 'wink-right') {
+      setIntentOptionIdx((prev) => (prev + 1) % intentOptions.length)
+    }
+  }
+
+  const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
 
   const rtmsDataLines = rtmsLogs
     .map((line) => {
@@ -369,6 +557,100 @@ export default function ZoomPage() {
                 : 'No RTMS entries with data yet.'}
             </pre>
           </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 16,
+            borderRadius: 14,
+            border: '1px solid rgba(255,255,255,0.18)',
+            background: 'rgba(2,6,23,0.7)',
+            padding: 14,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+            <h3 style={{ margin: 0 }}>Intent Response (Double-Blink)</h3>
+            <button
+              onClick={triggerIntent}
+              disabled={intentBusy}
+              style={{ cursor: 'pointer', padding: '6px 10px', borderRadius: 8, border: 'none' }}
+            >
+              {intentBusy ? 'Generating...' : 'Generate Now'}
+            </button>
+          </div>
+          <p style={{ margin: '8px 0 6px', color: 'rgba(255,255,255,0.75)' }}>{intentStatus}</p>
+          <p style={{ margin: '0 0 10px', color: 'rgba(255,255,255,0.6)' }}>
+            Source buffer: {recentTranscripts.length} transcript entries.
+            {' '}Double-blink = generate (or speak selected), wink left/right = browse.
+          </p>
+          {intentError ? <p style={{ color: '#fca5a5', margin: '0 0 10px' }}>{intentError}</p> : null}
+          <div
+            style={{
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: '#020617',
+              padding: 10,
+              minHeight: 68,
+            }}
+          >
+            {intentOptions.length > 0 ? (
+              <div>
+                <p style={{ margin: '0 0 6px', color: 'rgba(255,255,255,0.6)' }}>
+                  Option {intentOptionIdx + 1} / {intentOptions.length}
+                </p>
+                <p style={{ margin: 0, fontSize: 18, lineHeight: 1.4 }}>{intentOptions[intentOptionIdx]}</p>
+              </div>
+            ) : (
+              <p style={{ margin: 0, color: 'rgba(255,255,255,0.5)' }}>
+                No generated responses yet.
+              </p>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              onClick={() => void speakIntentOption(intentOptions[intentOptionIdx] ?? '')}
+              disabled={intentOptions.length === 0 || ttsBusy}
+              style={{ cursor: 'pointer', padding: '6px 10px', borderRadius: 8, border: 'none' }}
+            >
+              {ttsBusy ? 'Speaking...' : 'Speak Selected'}
+            </button>
+          </div>
+          <p style={{ margin: '8px 0 0', color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
+            For call injection, set browser output to your virtual audio device and set Zoom mic to that virtual input/monitor.
+          </p>
+          <audio ref={ttsAudioRef} hidden />
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: 'fixed',
+          right: 18,
+          bottom: 18,
+          width: 168,
+          borderRadius: 12,
+          overflow: 'hidden',
+          border: '1px solid rgba(255,255,255,0.18)',
+          background: '#000',
+          zIndex: 40,
+        }}
+      >
+        <Webcam
+          ref={webcamRef}
+          audio={false}
+          mirrored
+          videoConstraints={{ width: 320, height: 180, facingMode: 'user' }}
+          style={{ width: '100%', height: 104, objectFit: 'cover' }}
+        />
+        <div
+          style={{
+            padding: '4px 8px',
+            fontSize: 11,
+            color: blinkStatus === 'detecting' ? '#4ade80' : 'rgba(255,255,255,0.7)',
+            background: 'rgba(0,0,0,0.75)',
+          }}
+        >
+          Blink: {blinkStatus}
         </div>
       </div>
     </div>

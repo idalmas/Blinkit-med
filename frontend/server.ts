@@ -13,6 +13,16 @@ app.use(express.json());
 const rtmsClients = new Map<string, any>();
 const rtmsLogs: string[] = [];
 const RTMS_MAX_LOGS = 500;
+const RTMS_TRANSCRIPT_BUFFER_SIZE = 20;
+
+interface RtmsTranscriptEntry {
+  username: string;
+  conferenceTime: string;
+  text: string;
+  streamId: string;
+}
+
+const recentRtmsTranscripts: RtmsTranscriptEntry[] = [];
 
 const ZOOM_MEETING_SDK_KEY = process.env.ZOOM_MEETING_SDK_KEY;
 const ZOOM_MEETING_SDK_SECRET = process.env.ZOOM_MEETING_SDK_SECRET;
@@ -63,6 +73,87 @@ function appendRtmsLog(label: string, payload: unknown): void {
   console.log(`[rtms] ${label}`, payload);
 }
 
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
+function extractFirstString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function extractTranscriptText(rawData: string): string {
+  const parsed = tryParseJson(rawData);
+  const parsedRecord = asRecord(parsed);
+  if (!parsedRecord) return rawData.trim();
+  return (
+    extractFirstString(parsedRecord, ['text', 'transcript', 'content', 'message', 'utterance']) ??
+    rawData.trim()
+  );
+}
+
+function extractUsername(metadata: unknown, rawData: string): string {
+  const metadataRecord = asRecord(metadata);
+  if (metadataRecord) {
+    const direct = extractFirstString(metadataRecord, [
+      'userName',
+      'username',
+      'user_name',
+      'display_name',
+      'participant_name',
+      'speaker',
+      'name',
+    ]);
+    if (direct) return direct;
+  }
+
+  const parsed = tryParseJson(rawData);
+  const parsedRecord = asRecord(parsed);
+  if (parsedRecord) {
+    const fromData = extractFirstString(parsedRecord, [
+      'userName',
+      'username',
+      'user_name',
+      'display_name',
+      'participant_name',
+      'speaker',
+      'name',
+    ]);
+    if (fromData) return fromData;
+  }
+
+  return 'unknown';
+}
+
+function toConferenceIso(timestamp: number): string {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) {
+    return new Date().toISOString();
+  }
+  const ms = timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000;
+  return new Date(ms).toISOString();
+}
+
+function appendRtmsTranscript(entry: RtmsTranscriptEntry): void {
+  recentRtmsTranscripts.push(entry);
+  if (recentRtmsTranscripts.length > RTMS_TRANSCRIPT_BUFFER_SIZE) {
+    recentRtmsTranscripts.splice(0, recentRtmsTranscripts.length - RTMS_TRANSCRIPT_BUFFER_SIZE);
+  }
+}
+
 app.get('/api/zoom/rtms/logs', (_req, res) => {
   res.json({ logs: rtmsLogs });
 });
@@ -70,6 +161,14 @@ app.get('/api/zoom/rtms/logs', (_req, res) => {
 app.post('/api/zoom/rtms/logs/clear', (_req, res) => {
   rtmsLogs.length = 0;
   res.json({ ok: true });
+});
+
+app.get('/api/zoom/rtms/recent-transcripts', (_req, res) => {
+  res.json({
+    size: RTMS_TRANSCRIPT_BUFFER_SIZE,
+    count: recentRtmsTranscripts.length,
+    items: recentRtmsTranscripts,
+  });
 });
 
 function toBase64Url(value: string): string {
@@ -275,13 +374,26 @@ rtms.onWebhookEvent(({ event, payload }) => {
     appendRtmsLog('video_data', { streamId, size, timestamp, metadata }),
   );
   client.onTranscriptData((data: unknown, size: number, timestamp: number, metadata: unknown) =>
-    appendRtmsLog('transcript_data', {
-      streamId,
-      size,
-      timestamp,
-      metadata,
-      data: Buffer.isBuffer(data) ? data.toString('utf8') : String(data),
-    }),
+    {
+      const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
+      const transcript = extractTranscriptText(text);
+      if (transcript) {
+        appendRtmsTranscript({
+          username: extractUsername(metadata, text),
+          conferenceTime: toConferenceIso(timestamp),
+          text: transcript,
+          streamId,
+        });
+      }
+
+      appendRtmsLog('transcript_data', {
+        streamId,
+        size,
+        timestamp,
+        metadata,
+        data: text,
+      });
+    },
   );
   client.onLeave((reason: unknown) => {
     appendRtmsLog('leave', { streamId, reason });
