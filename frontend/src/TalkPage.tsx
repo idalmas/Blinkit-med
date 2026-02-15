@@ -12,13 +12,10 @@ import { API_BASE, PERSON } from './config'
 
 type TalkState =
   | 'IDLE'
-  | 'SPEAKER_SELECT'
   | 'LOADING_OPTIONS'
   | 'PICKING_OPTION'
   | 'GENERATING_AUDIO'
   | 'PLAYING_AUDIO'
-
-const SPEAKER_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899']
 
 export default function TalkPage() {
   const navigate = useNavigate()
@@ -67,7 +64,7 @@ export default function TalkPage() {
 
   // Fetch response options from getContext
   const fetchOptions = useCallback(
-    async (speakerNum: number) => {
+    async () => {
       setTalkState('LOADING_OPTIONS')
       setError(null)
 
@@ -76,8 +73,8 @@ export default function TalkPage() {
       utteranceSnapshotRef.current = snapshot
 
       const transcript = snapshot
-        .map((u) => `Speaker ${u.speaker + 1}: ${u.text}`)
-        .join('\n')
+        .map((u) => u.text)
+        .join(' ')
 
       try {
         const res = await fetch(`${API_BASE}/getContext`, {
@@ -86,11 +83,7 @@ export default function TalkPage() {
           body: JSON.stringify({
             app: 'Talk',
             person: PERSON,
-            text: JSON.stringify({
-              transcript,
-              selectedSpeaker: speakerNum,
-              speakerCount: speakers || 1,
-            }),
+            text: transcript,
             k: 5,
           }),
         })
@@ -112,7 +105,7 @@ export default function TalkPage() {
         setTalkState('IDLE')
       }
     },
-    [utterances, speakers]
+    [utterances]
   )
 
   // Generate and play TTS for arbitrary text
@@ -200,22 +193,7 @@ export default function TalkPage() {
               setTimeout(() => setError(null), 2000)
               return
             }
-            if (speakers <= 1) {
-              // Auto-select the only speaker
-              fetchOptions(0)
-            } else {
-              setTalkState('SPEAKER_SELECT')
-            }
-          }
-          break
-
-        case 'SPEAKER_SELECT':
-          if (type === 'wink-left') {
-            fetchOptions(0)
-          } else if (type === 'wink-right') {
-            fetchOptions(1)
-          } else if (type === 'triple') {
-            setTalkState('IDLE')
+            fetchOptions()
           }
           break
 
@@ -256,7 +234,7 @@ export default function TalkPage() {
           break
       }
     },
-    [morseOpen, talkState, utterances, speakers, options, totalOptions, optionIdx, navigate, fetchOptions, selectOption, speakText, audioUrl]
+    [morseOpen, talkState, utterances, options, totalOptions, optionIdx, navigate, fetchOptions, selectOption, speakText, audioUrl]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
@@ -264,7 +242,6 @@ export default function TalkPage() {
   // Status subtitle based on state
   const subtitle: Record<TalkState, string> = {
     IDLE: 'Listening... double-blink to respond',
-    SPEAKER_SELECT: 'Who do you want to respond to?',
     LOADING_OPTIONS: 'Generating responses...',
     PICKING_OPTION: 'Wink to browse, double-blink to speak',
     GENERATING_AUDIO: 'Generating speech...',
@@ -401,7 +378,7 @@ export default function TalkPage() {
               <FaMicrophone size={36} color="rgba(139, 92, 246, 0.8)" />
             </div>
             <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>
-              {isRecording ? `${speakers} speaker${speakers !== 1 ? 's' : ''} detected` : 'Connecting...'}
+              {isRecording ? 'Detecting speech...' : 'Connecting...'}
             </div>
           </div>
         )}
@@ -620,102 +597,6 @@ export default function TalkPage() {
           </div>
         )}
       </div>
-
-      {/* Speaker selection modal */}
-      {talkState === 'SPEAKER_SELECT' && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 50,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'rgba(0, 0, 0, 0.85)',
-            animation: 'modalIn 0.3s ease-out',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 32,
-            }}
-          >
-            <h2 style={{ color: '#fff', fontSize: 28, fontWeight: 700 }}>Who do you want to respond to?</h2>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>
-              Wink left for Speaker 1 &middot; Wink right for Speaker 2 &middot; Triple-blink to go
-              back
-            </p>
-            <div style={{ display: 'flex', gap: 32 }}>
-              {Array.from({ length: Math.min(speakers, 2) }, (_, speakerNum) => {
-                const color = SPEAKER_COLORS[speakerNum % SPEAKER_COLORS.length]
-                const recentUtts = utterances.filter((u) => u.speaker === speakerNum).slice(-3)
-                return (
-                  <div
-                    key={speakerNum}
-                    style={{
-                      width: 280,
-                      padding: 24,
-                      borderRadius: 20,
-                      background: 'rgba(255,255,255,0.06)',
-                      border: `2px solid ${color}40`,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 12,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                    }}
-                    onClick={() => fetchOptions(speakerNum)}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')
-                    }
-                  >
-                    <div style={{ color, fontSize: 20, fontWeight: 700 }}>
-                      Speaker {speakerNum + 1}
-                    </div>
-                    <div
-                      style={{
-                        color: 'rgba(255,255,255,0.3)',
-                        fontSize: 11,
-                        textTransform: 'uppercase',
-                        letterSpacing: 1,
-                      }}
-                    >
-                      {speakerNum === 0 ? 'Wink Left' : 'Wink Right'}
-                    </div>
-                    {recentUtts.length > 0 ? (
-                      recentUtts.map((u, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            color: 'rgba(255,255,255,0.5)',
-                            fontSize: 13,
-                            lineHeight: 1.4,
-                            borderLeft: `3px solid ${color}40`,
-                            paddingLeft: 10,
-                          }}
-                        >
-                          "{u.text.slice(0, 80)}
-                          {u.text.length > 80 ? '...' : ''}"
-                        </div>
-                      ))
-                    ) : (
-                      <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>
-                        No speech detected yet
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Morse keyboard for custom text input */}
       <MorseKeyboard
