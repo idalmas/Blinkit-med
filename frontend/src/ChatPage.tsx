@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FaArrowLeft, FaPaperPlane } from 'react-icons/fa'
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 const API_BASE = 'http://localhost:3003'
 
@@ -16,6 +17,18 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleBlink = useCallback(
+    (type: BlinkType) => {
+      if (type === 'long-close') {
+        navigate('/apps')
+        return
+      }
+    },
+    [navigate]
+  )
+
+  useBlinkDetection({ onBlink: handleBlink })
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
