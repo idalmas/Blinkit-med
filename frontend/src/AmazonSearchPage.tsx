@@ -31,7 +31,7 @@ import { FaAmazon, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch } fro
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 /** Base URL for the Hono backend (Elasticsearch + BrightData + Cerebras). */
-const API_BASE = 'http://localhost:3001'
+const API_BASE = 'http://localhost:3003'
 
 /**
  * PERSON — the persona whose Elasticsearch context is used for personalisation.
@@ -196,6 +196,10 @@ export default function AmazonSearchPage() {
    */
   const handleBlink = useCallback(
     (type: BlinkType) => {
+      if (type === 'long-close') {
+        navigate('/apps')
+        return
+      }
       const suggestionsVisible = suggestions.length > 0 && !(status === 'ready' && products.length > 0)
 
       // ── Suggestion navigation mode ──
