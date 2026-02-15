@@ -12,12 +12,13 @@ const SPEAKER_COLORS = [
 
 interface Props {
   utterances: Utterance[];
+  interimUtterance?: Utterance | null;
   speakers: number;
   isRecording: boolean;
   error: string | null;
 }
 
-export function DiarizationPanel({ utterances, speakers, isRecording, error }: Props) {
+export function DiarizationPanel({ utterances, interimUtterance, speakers, isRecording, error }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -127,6 +128,20 @@ export function DiarizationPanel({ utterances, speakers, isRecording, error }: P
             <span style={{ color: '#e0e0e0' }}>{u.text}</span>
           </div>
         ))}
+        {interimUtterance && (
+          <div style={{ marginBottom: 6, opacity: 0.5 }}>
+            <span
+              style={{
+                color: SPEAKER_COLORS[interimUtterance.speaker % SPEAKER_COLORS.length],
+                fontWeight: 600,
+                fontSize: 13,
+              }}
+            >
+              Speaker {interimUtterance.speaker + 1}:
+            </span>{' '}
+            <span style={{ color: '#e0e0e0', fontStyle: 'italic' }}>{interimUtterance.text}</span>
+          </div>
+        )}
       </div>
 
       {/* Pulse animation */}

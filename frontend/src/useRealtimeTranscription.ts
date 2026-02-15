@@ -14,16 +14,16 @@ interface TranscriptMessage {
   is_final: boolean;
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim();
+import { API_BASE } from './config';
 
 /**
  * toWebSocketUrl — convert HTTP(S) API base URL to WS(S) URL for realtime streams.
  *
  * Inputs:
- * - apiBase: Backend base URL from env (e.g. http://localhost:3001).
+ * - apiBase: Backend base URL from env (e.g. http://localhost:3003).
  *
  * Outputs:
- * - string: WebSocket base URL (e.g. ws://localhost:3001).
+ * - string: WebSocket base URL (e.g. ws://localhost:3003).
  */
 function toWebSocketUrl(apiBase: string): string {
   try {
@@ -78,6 +78,7 @@ async function connectWithFallback(urls: string[]): Promise<WebSocket> {
 export function useRealtimeTranscription() {
   const [isRecording, setIsRecording] = useState(false);
   const [utterances, setUtterances] = useState<Utterance[]>([]);
+  const [interimUtterance, setInterimUtterance] = useState<Utterance | null>(null);
   const [speakers, setSpeakers] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,9 +87,12 @@ export function useRealtimeTranscription() {
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
+  // Version counter: incremented by stopRecording to abort in-flight startRecording calls
+  const versionRef = useRef(0);
 
   const startRecording = useCallback(async () => {
     setError(null);
+    const myVersion = ++versionRef.current;
 
     try {
       // Open WebSocket to backend transcription endpoint.
@@ -97,6 +101,12 @@ export function useRealtimeTranscription() {
         `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
       const candidates = Array.from(new Set([`${wsBase}/ws`, currentHostWs]));
       const ws = await connectWithFallback(candidates);
+
+      // If stopRecording was called while we were connecting, abort
+      if (myVersion !== versionRef.current) {
+        ws.close();
+        return;
+      }
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
@@ -123,13 +133,27 @@ export function useRealtimeTranscription() {
           }
           if (current) newUtterances.push(current);
 
-          setUtterances(prev => {
-            const updated = [...prev, ...newUtterances];
-            // Track unique speakers
-            const uniqueSpeakers = new Set(updated.map(u => u.speaker));
-            setSpeakers(uniqueSpeakers.size);
-            return updated;
-          });
+          if (data.is_final) {
+            // Commit final results to the utterances list
+            setInterimUtterance(null);
+            setUtterances(prev => {
+              const updated = [...prev, ...newUtterances];
+              const uniqueSpeakers = new Set(updated.map(u => u.speaker));
+              setSpeakers(uniqueSpeakers.size);
+              return updated;
+            });
+          } else {
+            // Show interim results as a live preview (replaced on each update)
+            if (newUtterances.length > 0) {
+              const merged: Utterance = {
+                speaker: newUtterances[0].speaker,
+                text: newUtterances.map(u => u.text).join(' '),
+                start: newUtterances[0].start,
+                end: newUtterances[newUtterances.length - 1].end,
+              };
+              setInterimUtterance(merged);
+            }
+          }
         } else if (msg.type === 'error') {
           setError(msg.message);
         }
@@ -144,6 +168,14 @@ export function useRealtimeTranscription() {
 
       // Get microphone and stream raw PCM at 16kHz to match server config
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Check again after getUserMedia (another async gap)
+      if (myVersion !== versionRef.current) {
+        stream.getTracks().forEach(t => t.stop());
+        ws.close();
+        wsRef.current = null;
+        return;
+      }
       streamRef.current = stream;
 
       const audioContext = new AudioContext({ sampleRate: 16000 });
@@ -175,6 +207,9 @@ export function useRealtimeTranscription() {
   }, []);
 
   const stopRecording = useCallback(() => {
+    // Increment version to abort any in-flight startRecording
+    versionRef.current++;
+
     // Disconnect audio processing
     processorRef.current?.disconnect();
     processorRef.current = null;
@@ -197,5 +232,5 @@ export function useRealtimeTranscription() {
     setSpeakers(0);
   }, []);
 
-  return { isRecording, utterances, speakers, error, startRecording, stopRecording, clearTranscript };
+  return { isRecording, utterances, interimUtterance, speakers, error, startRecording, stopRecording, clearTranscript };
 }
