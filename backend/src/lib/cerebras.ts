@@ -5,7 +5,7 @@
  * conversation dialog. The system prompt includes RAG context retrieved
  * from Elasticsearch so the response is grounded in the person's real data.
  *
- * Used by: routes/generate.ts
+ * Used by: routes/generate.ts, routes/getContext.ts
  *
  * Requires env var:
  *   - CEREBRAS_API_KEY
@@ -30,7 +30,7 @@ if (!apiKey) {
 const client = new Cerebras({ apiKey });
 
 /** The Cerebras model to use for generation. */
-const MODEL = "llama3.1-8b";
+const MODEL = "gpt-oss-120b";
 
 /**
  * The Cerebras SDK message type — a union of system / user / assistant / tool
@@ -70,11 +70,15 @@ function toCerebrasMessages(msgs: DialogMessage[]): CerebrasMessage[] {
  * @param systemPrompt  The system-level instruction (includes RAG context
  *                      retrieved from Elasticsearch).
  * @param dialog        The conversation history as an array of messages.
+ * @param maxTokens     Optional max tokens for the response (default 512).
+ *                      Increase for prompts that need longer outputs (e.g.
+ *                      generating 20 product ideas as JSON).
  * @returns             A single response string.
  */
 export async function generateResponse(
   systemPrompt: string,
-  dialog: DialogMessage[]
+  dialog: DialogMessage[],
+  maxTokens: number = 512
 ): Promise<string> {
   const messages = toCerebrasMessages([
     { role: "system", content: systemPrompt },
@@ -86,7 +90,7 @@ export async function generateResponse(
     messages,
     stream: false,
     temperature: 0.7,
-    max_tokens: 512,
+    max_tokens: maxTokens,
   };
 
   const response = (await client.chat.completions.create(
