@@ -23,7 +23,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
-import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
+import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone, FaVideo } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 /** Describes a single app card in the launcher grid. */
@@ -93,6 +93,14 @@ const apps: AppCard[] = [
     shadow: 'rgba(139, 92, 246, 0.4)',
     description: 'Voice conversations',
     path: '/apps/talk',
+  },
+  {
+    name: 'Zoom',
+    icon: <FaVideo size={48} />,
+    gradient: 'linear-gradient(135deg, #2D8CFF 0%, #0B5CFF 50%, #2D8CFF 100%)',
+    shadow: 'rgba(45, 140, 255, 0.4)',
+    description: 'Join Zoom meetings',
+    path: '/apps/zoom',
   },
 ]
 
@@ -419,6 +427,11 @@ export default function AppsPage() {
         @keyframes float6 {
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-9px); }
+        }
+
+        @keyframes float7 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-10px); }
         }
 
         .app-card:hover {

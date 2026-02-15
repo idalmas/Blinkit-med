@@ -38,6 +38,8 @@ import long from "./routes/long";
 import documents from "./routes/documents";
 import getContext from "./routes/getContext";
 import apps from "./routes/apps";
+import zoom from "./routes/zoom";
+import rtms from "@zoom/rtms";
 
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || "";
 
@@ -226,6 +228,7 @@ app.route("/long", long);
 app.route("/documents", documents);
 app.route("/getContext", getContext);
 app.route("/apps", apps);
+app.route("/zoom", zoom);
 /**
  * GET /ws — combined WebSocket endpoint.
  *
@@ -364,6 +367,83 @@ ensureIndex()
     console.error("❌ Failed to bootstrap Elasticsearch index:", err);
     process.exit(1);
   });
+
+/* ── RTMS Transcript Bridge ──────────────────────────────────
+ * Listens for Zoom RTMS webhook events on ZM_RTMS_PORT (8080)
+ * and broadcasts transcript data to all connected WebSocket clients.
+ */
+const rtmsClients = new Map<string, InstanceType<typeof rtms.Client>>();
+
+rtms.onWebhookEvent(({ event, payload }) => {
+  console.log(`[rtms] Received webhook event: ${event}`);
+  const streamId = payload?.rtms_stream_id;
+
+  if (event === "meeting.rtms_stopped") {
+    if (!streamId) {
+      console.log("[rtms] meeting.rtms_stopped without stream ID");
+      return;
+    }
+    const client = rtmsClients.get(streamId);
+    if (!client) {
+      console.log(`[rtms] meeting.rtms_stopped for unknown stream: ${streamId}`);
+      return;
+    }
+    console.log(`[rtms] Meeting RTMS stopped for stream: ${streamId}`);
+    client.leave();
+    rtmsClients.delete(streamId);
+    return;
+  }
+
+  if (event !== "meeting.rtms_started") {
+    console.log(`[rtms] Ignoring event: ${event}`);
+    return;
+  }
+
+  console.log(`[rtms] Meeting RTMS started! Stream ID: ${streamId}`);
+  const client = new rtms.Client();
+  rtmsClients.set(streamId, client);
+
+  client.onJoinConfirm((reason: any) => {
+    console.log(`[rtms] Join confirmed — reason: ${reason}`);
+  });
+
+  client.onSessionUpdate((op: any, sessionInfo: any) => {
+    console.log(`[rtms] Session update — op: ${op}`, sessionInfo);
+  });
+
+  client.onUserUpdate((op: any, participantInfo: any) => {
+    console.log(`[rtms] User update — op: ${op}`, participantInfo);
+  });
+
+  client.onTranscriptData((data: any, size: any, timestamp: any, metadata: any) => {
+    const text = typeof data === "string" ? data : data.toString("utf8");
+    console.log(`[${timestamp}] -- ${metadata.userName}: ${text}`);
+
+    // Broadcast to all connected WebSocket clients
+    const msg = JSON.stringify({
+      type: "zoom_transcript",
+      userName: metadata.userName,
+      userId: metadata.userId,
+      text,
+      timestamp,
+    });
+    for (const wsClient of signalClients) {
+      try {
+        wsClient.send(msg);
+      } catch {
+        // Stale socket — onClose will prune
+      }
+    }
+  });
+
+  client.onLeave((reason: any) => {
+    console.log(`[rtms] Left meeting — reason: ${reason}`);
+    rtmsClients.delete(streamId);
+  });
+
+  console.log("[rtms] Joining meeting via RTMS...");
+  client.join(payload);
+});
 
 export default {
   port: PORT,
