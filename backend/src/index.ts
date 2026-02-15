@@ -45,6 +45,164 @@ const app = new Hono();
 const { upgradeWebSocket, websocket } = createBunWebSocket();
 const signalClients = new Set<any>();
 
+type Direction = -1 | 0 | 1;
+
+interface SignalInput {
+  type: "signal";
+  raw: number;
+  voltage: number;
+  timestamp?: number;
+}
+
+interface ProcessedSignal extends SignalInput {
+  movingAvg: number;
+  lowerBound: number;
+  upperBound: number;
+  convScore: number;
+  convThreshold: number;
+  direction: Direction;
+  calibrated: boolean;
+  calibrationRemainingMs: number;
+}
+
+class EogProcessor {
+  private readonly calibrationMs = 15_000;
+  private readonly kernel = [-1, -0.5, 0, 0.5, 1];
+  private readonly refractoryMs = 180;
+  private readonly directionHoldMs = 160;
+  private readonly minConvThreshold = 12;
+  private readonly minMargin = 35;
+
+  private startedAt = 0;
+  private lastSampleAt = 0;
+  private isCalibrated = false;
+
+  private movingAvg = 0;
+  private noiseEma = 0;
+  private convNoiseEma = 0;
+  private detrendedWindow: number[] = [];
+  private calibrationValues: number[] = [];
+
+  private calibratedStd = 18;
+  private calibratedMean = 0;
+
+  private lastEventAt = 0;
+  private holdUntil = 0;
+  private direction: Direction = 0;
+  private readyForNextEvent = true;
+
+  reset(nowMs: number) {
+    this.startedAt = nowMs;
+    this.lastSampleAt = nowMs;
+    this.isCalibrated = false;
+    this.movingAvg = 0;
+    this.noiseEma = 0;
+    this.convNoiseEma = 0;
+    this.detrendedWindow = [];
+    this.calibrationValues = [];
+    this.calibratedStd = 18;
+    this.calibratedMean = 0;
+    this.lastEventAt = 0;
+    this.holdUntil = 0;
+    this.direction = 0;
+    this.readyForNextEvent = true;
+  }
+
+  process(input: SignalInput): ProcessedSignal {
+    const nowMs = Date.now();
+    if (!this.startedAt) this.reset(nowMs);
+    if (this.lastSampleAt && nowMs - this.lastSampleAt > 2_000) {
+      // Stream gap usually means a new user/session. Recalibrate automatically.
+      this.reset(nowMs);
+    }
+    this.lastSampleAt = nowMs;
+
+    const raw = Number(input.raw);
+    const voltage = Number(input.voltage);
+
+    if (this.movingAvg === 0) this.movingAvg = raw;
+    const avgAlpha = 0.02; // moving average baseline
+    this.movingAvg = this.movingAvg + avgAlpha * (raw - this.movingAvg);
+
+    const detrended = raw - this.movingAvg;
+    this.noiseEma = this.noiseEma + 0.05 * (Math.abs(detrended) - this.noiseEma);
+
+    this.detrendedWindow.push(detrended);
+    if (this.detrendedWindow.length > this.kernel.length) this.detrendedWindow.shift();
+
+    let convScore = 0;
+    if (this.detrendedWindow.length === this.kernel.length) {
+      for (let i = 0; i < this.kernel.length; i++) {
+        convScore += this.kernel[i] * this.detrendedWindow[i];
+      }
+    }
+    this.convNoiseEma = this.convNoiseEma + 0.05 * (Math.abs(convScore) - this.convNoiseEma);
+
+    if (!this.isCalibrated) {
+      this.calibrationValues.push(raw);
+      if (nowMs - this.startedAt >= this.calibrationMs && this.calibrationValues.length > 50) {
+        let sum = 0;
+        for (const v of this.calibrationValues) sum += v;
+        this.calibratedMean = sum / this.calibrationValues.length;
+        let varSum = 0;
+        for (const v of this.calibrationValues) varSum += (v - this.calibratedMean) ** 2;
+        this.calibratedStd = Math.sqrt(varSum / this.calibrationValues.length) || 18;
+        this.isCalibrated = true;
+      }
+    }
+
+    const calibratedMargin = Math.max(
+      this.minMargin,
+      this.calibratedStd * 4,
+      this.noiseEma * 7
+    );
+    const lowerBound = this.movingAvg - calibratedMargin;
+    const upperBound = this.movingAvg + calibratedMargin;
+
+    const convThreshold = Math.max(
+      this.minConvThreshold,
+      this.convNoiseEma * 3.6,
+      this.calibratedStd * 0.9
+    );
+
+    if (Math.abs(convScore) < convThreshold * 0.35) {
+      this.readyForNextEvent = true;
+    }
+
+    if (
+      this.readyForNextEvent &&
+      nowMs - this.lastEventAt > this.refractoryMs &&
+      Math.abs(convScore) > convThreshold
+    ) {
+      this.direction = convScore > 0 ? -1 : 1;
+      this.lastEventAt = nowMs;
+      this.holdUntil = nowMs + this.directionHoldMs;
+      this.readyForNextEvent = false;
+    } else if (nowMs > this.holdUntil) {
+      this.direction = 0;
+    }
+
+    return {
+      type: "signal",
+      raw,
+      voltage,
+      timestamp: input.timestamp ?? nowMs / 1000,
+      movingAvg: this.movingAvg,
+      lowerBound,
+      upperBound,
+      convScore,
+      convThreshold,
+      direction: this.direction,
+      calibrated: this.isCalibrated,
+      calibrationRemainingMs: this.isCalibrated
+        ? 0
+        : Math.max(0, this.calibrationMs - (nowMs - this.startedAt)),
+    };
+  }
+}
+
+const eogProcessor = new EogProcessor();
+
 /* ── Middleware ──────────────────────────────────────────────── */
 
 /** CORS — allow the Next.js frontend (default localhost:3000) and any origin. */
@@ -69,10 +227,11 @@ app.route("/documents", documents);
 app.route("/getContext", getContext);
 app.route("/apps", apps);
 /**
- * GET /ws — realtime transcription via Deepgram.
+ * GET /ws — combined WebSocket endpoint.
  *
- * Accepts 16kHz int16 PCM audio from the Talk page, forwards it to Deepgram's
- * streaming API, and relays transcript results back to the client.
+ * Handles two types of traffic on a single socket:
+ *   1. Binary frames (audio PCM) → forwarded to Deepgram for transcription
+ *   2. JSON string frames → signal processing (EOG) or subscribe messages
  */
 app.get(
   "/ws",
@@ -81,6 +240,7 @@ app.get(
 
     return {
       onOpen(_evt, ws) {
+        signalClients.add(ws);
         ws.send(JSON.stringify({ type: "connected" }));
 
         if (!DEEPGRAM_API_KEY) {
@@ -117,7 +277,6 @@ app.get(
             confidence: w.confidence,
           }));
 
-          // Debug: log speaker values from Deepgram
           if (data.is_final) {
             const speakerVals = words.map((w: any) => w.speaker);
             const unique = [...new Set(speakerVals)];
@@ -142,16 +301,42 @@ app.get(
         });
       },
 
-      onMessage(event) {
-        if (dgConnection) {
-          const data = typeof event.data === "string"
-            ? Buffer.from(event.data)
-            : event.data;
-          dgConnection.send(data);
+      onMessage(event, ws) {
+        // Binary data → forward to Deepgram for transcription
+        if (typeof event.data !== "string") {
+          if (dgConnection) {
+            dgConnection.send(event.data);
+          }
+          return;
+        }
+
+        // JSON string data → handle signal processing and subscribe
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "signal") {
+            const processed = eogProcessor.process(data as SignalInput);
+            const payload = JSON.stringify(processed);
+            for (const client of signalClients) {
+              if (client === ws) continue;
+              try {
+                client.send(payload);
+              } catch {
+                // Ignore send errors for stale sockets; onClose will prune.
+              }
+            }
+          } else if (data.type === "subscribe") {
+            ws.send(JSON.stringify({ type: "subscribed" }));
+          }
+        } catch {
+          // Non-JSON string → try forwarding to Deepgram as audio
+          if (dgConnection) {
+            dgConnection.send(Buffer.from(event.data));
+          }
         }
       },
 
-      onClose() {
+      onClose(_evt, ws) {
+        signalClients.delete(ws);
         if (dgConnection) {
           dgConnection.requestClose();
           dgConnection = null;

@@ -4,14 +4,29 @@ interface SignalData {
   raw: number;
   voltage: number;
   timestamp: number;
+  movingAvg?: number;
+  lowerBound?: number;
+  upperBound?: number;
+  convScore?: number;
+  convThreshold?: number;
+  direction?: -1 | 0 | 1;
+  calibrated?: boolean;
+  calibrationRemainingMs?: number;
 }
 
-export const SignalVisualizer: React.FC = () => {
+interface SignalVisualizerProps {
+  compact?: boolean;
+}
+
+export const SignalVisualizer: React.FC<SignalVisualizerProps> = ({ compact = false }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dataRef = useRef<SignalData[]>([]);
   const [connected, setConnected] = useState(false);
   const [sampleCount, setSampleCount] = useState(0);
   const [lastRaw, setLastRaw] = useState<number | null>(null);
+  const [directionText, setDirectionText] = useState<'LEFT' | 'RIGHT' | ''>('');
+  const [calibrationLeftMs, setCalibrationLeftMs] = useState(0);
+  const uiTickRef = useRef(0);
 
   useEffect(() => {
     const ws = new WebSocket('ws://localhost:3001/ws');
@@ -33,8 +48,15 @@ export const SignalVisualizer: React.FC = () => {
         if (dataRef.current.length > 500) {
           dataRef.current.shift();
         }
-        setSampleCount((c) => c + 1);
-        setLastRaw(msg.raw);
+        uiTickRef.current += 1;
+        if (uiTickRef.current % 8 === 0) {
+          setSampleCount((c) => c + 8);
+          setLastRaw(msg.raw);
+          setCalibrationLeftMs(msg.calibrationRemainingMs ?? 0);
+          if (msg.direction === 1) setDirectionText('LEFT');
+          else if (msg.direction === -1) setDirectionText('RIGHT');
+          else setDirectionText('');
+        }
       }
     };
 
@@ -74,13 +96,15 @@ export const SignalVisualizer: React.FC = () => {
         ctx.lineWidth = 2;
         ctx.beginPath();
 
-        const minVal = 1750;
-        const maxVal = 2250;
+        const latest = currentData[currentData.length - 1];
+        const minVal = latest.lowerBound ?? 1750;
+        const maxVal = latest.upperBound ?? 2250;
         const range = maxVal - minVal;
 
         currentData.forEach((point, i) => {
           const x = (i / 500) * canvas.width;
-          const y = canvas.height - ((point.raw - minVal) / range) * canvas.height;
+          const normalized = range > 1 ? (point.raw - minVal) / range : 0.5;
+          const y = canvas.height - Math.max(0, Math.min(1, normalized)) * canvas.height;
           
           if (i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
@@ -97,22 +121,65 @@ export const SignalVisualizer: React.FC = () => {
 
   return (
     <div style={{ 
-      background: '#111', 
-      padding: '20px', 
-      borderRadius: '16px', 
+      background: compact ? 'rgba(0,0,0,0.35)' : '#111', 
+      padding: compact ? '0' : '20px', 
+      borderRadius: compact ? '12px' : '16px', 
       border: '1px solid #333',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.5)'
+      boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+      width: '100%',
+      height: '100%',
+      position: 'relative',
+      overflow: 'hidden',
     }}>
-      <h3 style={{ color: '#fff', margin: '0 0 10px 0', fontSize: '14px', opacity: 0.7 }}>Live EOG Signal</h3>
-      <div style={{ color: connected ? '#4ade80' : '#f87171', fontSize: '12px', marginBottom: '8px' }}>
-        {connected ? 'Connected' : 'Disconnected'} · Samples: {sampleCount} · Last ADC: {lastRaw ?? '-'}
-      </div>
+      {!compact && (
+        <>
+          <h3 style={{ color: '#fff', margin: '0 0 10px 0', fontSize: '14px', opacity: 0.7 }}>Live EOG Signal</h3>
+          <div style={{ color: connected ? '#4ade80' : '#f87171', fontSize: '12px', marginBottom: '8px' }}>
+            {connected ? 'Connected' : 'Disconnected'} · Samples: {sampleCount} · Last ADC: {lastRaw ?? '-'} · {directionText || 'CENTER'}
+            {calibrationLeftMs > 0 ? ` · Calibrating ${(calibrationLeftMs / 1000).toFixed(1)}s` : ''}
+          </div>
+        </>
+      )}
       <canvas 
         ref={canvasRef} 
         width={800} 
         height={200} 
-        style={{ width: '100%', height: 'auto', display: 'block' }}
+        style={{ width: '100%', height: compact ? '100%' : 'auto', display: 'block' }}
       />
+      {compact && (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              left: 6,
+              bottom: 6,
+              fontSize: 10,
+              color: connected ? '#4ade80' : '#f87171',
+              background: 'rgba(0,0,0,0.65)',
+              padding: '2px 6px',
+              borderRadius: 4,
+            }}
+          >
+            {connected ? 'EOG live' : 'EOG offline'} · {lastRaw ?? '-'}
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              right: 6,
+              top: 6,
+              fontSize: 10,
+              color: directionText === 'LEFT' ? '#60a5fa' : directionText === 'RIGHT' ? '#f472b6' : 'rgba(255,255,255,0.7)',
+              background: 'rgba(0,0,0,0.65)',
+              padding: '2px 6px',
+              borderRadius: 4,
+              fontWeight: 700,
+              letterSpacing: 0.4,
+            }}
+          >
+            {directionText || 'CENTER'}
+          </div>
+        </>
+      )}
     </div>
   );
 };

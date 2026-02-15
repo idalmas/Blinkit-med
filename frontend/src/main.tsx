@@ -9,10 +9,14 @@ import WebSearchPage from './WebSearchPage.tsx'
 import FlappyBirdPage from './FlappyBirdPage.tsx'
 import BooksPage from './BooksPage.tsx'
 import TalkPage from './TalkPage.tsx'
+import InputModeToggle from './components/InputModeToggle.tsx'
+import GlobalEogPanel from './components/GlobalEogPanel.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
+      <InputModeToggle />
+      <GlobalEogPanel />
       <Routes>
         <Route path="/" element={<Navigate to="/apps" replace />} />
         <Route path="/apps" element={<AppsPage />} />
