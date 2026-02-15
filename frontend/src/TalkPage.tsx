@@ -154,6 +154,10 @@ export default function TalkPage() {
 
       switch (talkState) {
         case 'IDLE':
+          if (type === 'triple') {
+            navigate('/apps')
+            return
+          }
           if (type === 'double') {
             if (utterances.length === 0) {
               setError('No conversation detected yet.')
