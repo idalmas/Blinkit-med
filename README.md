@@ -39,10 +39,10 @@ Every interaction is personalized through a **RAG pipeline**: user context is em
 ## Apps
 
 ### Talk
-Real-time voice conversation assistant. Deepgram transcribes speech live, and on a double-blink, Blinket generates contextual response options using RAG. Select a response with a wink and it's spoken aloud via Fish Audio TTS. Includes a Morse keyboard for typing custom messages through blink patterns.
+Real-time voice conversation assistant. Deepgram transcribes speech live, and on a double-blink, Blinket generates contextual response options using RAG. Select a response with a wink and it's spoken aloud via Fish Audio TTS. Includes a Morse keyboard for typing custom messages through blink and gaze patterns.
 
 ### Amazon Shopping
-Personalized product discovery. Blinket generates search queries based on user context, scrapes Amazon via BrightData, and presents results in a 3D carousel. Double-blink to email yourself a product link.
+Personalized product discovery. Blinket generates search queries based on user context, scrapes Amazon via BrightData, and presents results in a 3D carousel. Double-blink to email your caretaker a product link.
 
 ### Google Maps
 Location-aware place discovery. Uses geolocation + personalized queries to find relevant businesses and places. Browse results with winks, double-blink to open in Google Maps.
@@ -60,7 +60,7 @@ Curated classic literature reader with page-flip animations. Wink to turn pages,
 Blink-controlled game. Blink to jump. A fun way to practice blink detection calibration.
 
 ### Zoom Meetings
-Join Zoom meetings directly in the browser via the Zoom Embedded SDK. Live meeting transcripts appear in a side panel via Zoom RTMS. Double-blink to generate contextual responses during the call and speak them via TTS.
+Join Zoom meetings directly in the browser via the Zoom Embedded SDK. Live meeting transcripts appear in a side panel via Zoom RTMS. Double-blink to generate contextual responses during the call and speak them via TTS in the user's own voice.
 
 ---
 
@@ -104,7 +104,7 @@ bun install
 bun run dev
 ```
 
-Requires a `.env` file with API keys for Deepgram, Cerebras, Elasticsearch, BrightData, Fish Audio, Cohere, Resend, and optionally Zoom.
+Requires a `.env` file with API keys for Deepgram, Cerebras, Elasticsearch, BrightData, Fish Audio, Cohere, Resend, and Zoom.
 
 ### Frontend
 
