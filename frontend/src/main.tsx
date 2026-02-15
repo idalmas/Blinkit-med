@@ -9,6 +9,7 @@ import WebSearchPage from './WebSearchPage.tsx'
 import FlappyBirdPage from './FlappyBirdPage.tsx'
 import BooksPage from './BooksPage.tsx'
 import TalkPage from './TalkPage.tsx'
+import ZoomPage from './ZoomPage.tsx'
 import InputModeToggle from './components/InputModeToggle.tsx'
 import GlobalEogPanel from './components/GlobalEogPanel.tsx'
 
@@ -27,6 +28,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/apps/flappy-bird" element={<FlappyBirdPage />} />
         <Route path="/apps/books" element={<BooksPage />} />
         <Route path="/apps/talk" element={<TalkPage />} />
+        <Route path="/apps/zoom" element={<ZoomPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

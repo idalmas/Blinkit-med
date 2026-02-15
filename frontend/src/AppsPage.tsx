@@ -23,7 +23,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
-import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
+import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone, FaVideo } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 /** Describes a single app card in the launcher grid. */
@@ -93,6 +93,14 @@ const apps: AppCard[] = [
     shadow: 'rgba(139, 92, 246, 0.4)',
     description: 'Voice conversations',
     path: '/apps/talk',
+  },
+  {
+    name: 'Zoom',
+    icon: <FaVideo size={48} />,
+    gradient: 'linear-gradient(135deg, #0E71EB 0%, #38BDF8 50%, #0E71EB 100%)',
+    shadow: 'rgba(14, 113, 235, 0.45)',
+    description: 'Meetings + RTMS logs',
+    path: '/apps/zoom',
   },
 ]
 
