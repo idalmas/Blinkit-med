@@ -40,7 +40,7 @@ interface MorseKeyboardProps {
 const REFERENCE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('')
 
 export const MorseKeyboard = forwardRef<MorseKeyboardHandle, MorseKeyboardProps>(
-  function MorseKeyboard({ isOpen, onClose }, ref) {
+  function MorseKeyboard({ isOpen, onClose: _onClose }, ref) {
     const [currentSequence, setCurrentSequence] = useState('')
     const [composedText, setComposedText] = useState('')
     const [flashKey, setFlashKey] = useState(0)
