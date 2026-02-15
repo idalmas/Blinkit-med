@@ -401,7 +401,7 @@ export default function TalkPage() {
                 marginBottom: 8,
               }}
             >
-              Wink to browse &middot; Double-blink to speak &middot; Triple to cancel
+              Wink to browse &middot; Double-blink to speak &middot; Triple-blink to go back
             </div>
 
             {options.map((opt, i) => {
@@ -524,7 +524,7 @@ export default function TalkPage() {
               "{options[optionIdx]}"
             </div>
             <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
-              Triple-blink to stop
+              Triple-blink to go back
             </div>
           </div>
         )}
@@ -554,8 +554,8 @@ export default function TalkPage() {
           >
             <h2 style={{ color: '#fff', fontSize: 28, fontWeight: 700 }}>Who do you want to respond to?</h2>
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>
-              Wink left for Speaker 1 &middot; Wink right for Speaker 2 &middot; Triple-blink to
-              cancel
+              Wink left for Speaker 1 &middot; Wink right for Speaker 2 &middot; Triple-blink to go
+              back
             </p>
             <div style={{ display: 'flex', gap: 32 }}>
               {Array.from({ length: Math.min(speakers, 2) }, (_, speakerNum) => {
