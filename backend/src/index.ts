@@ -165,7 +165,7 @@ app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
 
 /* ── Bootstrap & Export for Bun ─────────────────────────────── */
 
-const PORT = Number(process.env.PORT) || 3001;
+const PORT = Number(process.env.PORT) || 3003;
 
 // Create the Elasticsearch index if it doesn't exist, then add the `person`
 // field to the mapping (safe no-op if it already exists), then start serving.
