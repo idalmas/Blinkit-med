@@ -1,11 +1,11 @@
 /**
- * cerebras.ts — Cerebras Client & Two-Response Generation Helper
+ * cerebras.ts — Cerebras Client & Response Generation Helper
  *
- * Wraps the Cerebras Cloud SDK to generate two distinct response options for a
- * conversation dialog. We call chat completions twice with different
- * temperature / seed combos so the user gets meaningfully different replies.
+ * Wraps the Cerebras Cloud SDK to generate a single response for a
+ * conversation dialog. The system prompt includes RAG context retrieved
+ * from Elasticsearch so the response is grounded in the person's real data.
  *
- * Used by: routes/generate.ts
+ * Used by: routes/generate.ts, routes/getContext.ts
  *
  * Requires env var:
  *   - CEREBRAS_API_KEY
@@ -30,7 +30,7 @@ if (!apiKey) {
 const client = new Cerebras({ apiKey });
 
 /** The Cerebras model to use for generation. */
-const MODEL = "llama3.1-8b";
+const MODEL = "gpt-oss-120b";
 
 /**
  * The Cerebras SDK message type — a union of system / user / assistant / tool
@@ -65,50 +65,37 @@ function toCerebrasMessages(msgs: DialogMessage[]): CerebrasMessage[] {
 }
 
 /**
- * generateTwoOptions — produces two distinct response options for a dialog.
+ * generateResponse — produces a single response for a dialog using Cerebras.
  *
- * @param systemPrompt  The system-level instruction (includes RAG context).
+ * @param systemPrompt  The system-level instruction (includes RAG context
+ *                      retrieved from Elasticsearch).
  * @param dialog        The conversation history as an array of messages.
- * @returns             A tuple of two response strings [optionA, optionB].
+ * @param maxTokens     Optional max tokens for the response (default 512).
+ *                      Increase for prompts that need longer outputs (e.g.
+ *                      generating 20 product ideas as JSON).
+ * @returns             A single response string.
  */
-export async function generateTwoOptions(
+export async function generateResponse(
   systemPrompt: string,
-  dialog: DialogMessage[]
-): Promise<[string, string]> {
+  dialog: DialogMessage[],
+  maxTokens: number = 512
+): Promise<string> {
   const messages = toCerebrasMessages([
     { role: "system", content: systemPrompt },
     ...dialog,
   ]);
 
-  const paramsA: ChatCompletionCreateParamsNonStreaming = {
+  const params: ChatCompletionCreateParamsNonStreaming = {
     model: MODEL,
     messages,
     stream: false,
     temperature: 0.7,
-    seed: 42,
-    max_tokens: 512,
+    max_tokens: maxTokens,
   };
 
-  const paramsB: ChatCompletionCreateParamsNonStreaming = {
-    model: MODEL,
-    messages,
-    stream: false,
-    temperature: 0.9,
-    seed: 123,
-    max_tokens: 512,
-  };
+  const response = (await client.chat.completions.create(
+    params
+  )) as ChatCompletion.ChatCompletionResponse;
 
-  // Fire both requests in parallel for speed.
-  // Cast to ChatCompletionResponse since we set stream: false.
-  const [responseA, responseB] = await Promise.all([
-    client.chat.completions.create(paramsA) as Promise<ChatCompletion.ChatCompletionResponse>,
-    client.chat.completions.create(paramsB) as Promise<ChatCompletion.ChatCompletionResponse>,
-  ]);
-
-  const optionA =
-    responseA.choices[0]?.message?.content ?? "(no response generated)";
-  const optionB =
-    responseB.choices[0]?.message?.content ?? "(no response generated)";
-
-  return [optionA, optionB];
+  return response.choices[0]?.message?.content ?? "(no response generated)";
 }
