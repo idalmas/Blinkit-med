@@ -452,27 +452,6 @@ export default function AmazonSearchPage() {
   }, [])
 
   /**
-   * autoStartFirstSuggestion — kicks off a search as soon as suggestions load.
-   *
-   * This avoids a "stuck" first impression where users see no data while waiting
-   * to manually click. It runs once per page load and only when search is idle.
-   *
-   * @returns void
-   */
-  useEffect(() => {
-    if (autoSearchTriggeredRef.current) return
-    if (suggestionsLoading || suggestions.length === 0) return
-    if (status !== 'idle' || products.length > 0) return
-
-    autoSearchTriggeredRef.current = true
-    setHighlightedSuggestionIdx(0)
-    void handleSuggestionClick(suggestions[0])
-  }, [suggestionsLoading, suggestions, status, products.length, handleSuggestionClick])
-
-  // No auto-search — user must navigate suggestions with winks and
-  // double-blink to confirm before any search is triggered.
-
-  /**
    * handleSuggestionClick — triggered when the user clicks a suggestion chip.
    * Sets the keyword, marks the chip as active, and kicks off a BrightData search.
    */
@@ -519,6 +498,24 @@ export default function AmazonSearchPage() {
       }
     })()
   }, [limit, stopPolling, pollForResults])
+
+  /**
+   * autoStartFirstSuggestion — kicks off a search as soon as suggestions load.
+   *
+   * This avoids a "stuck" first impression where users see no data while waiting
+   * to manually click. It runs once per page load and only when search is idle.
+   *
+   * @returns void
+   */
+  useEffect(() => {
+    if (autoSearchTriggeredRef.current) return
+    if (suggestionsLoading || suggestions.length === 0) return
+    if (status !== 'idle' || products.length > 0) return
+
+    autoSearchTriggeredRef.current = true
+    setHighlightedSuggestionIdx(0)
+    void handleSuggestionClick(suggestions[0])
+  }, [suggestionsLoading, suggestions, status, products.length, handleSuggestionClick])
 
   // Keep the ref in sync so handleBlink can call the latest version
   useEffect(() => {
