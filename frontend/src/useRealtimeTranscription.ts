@@ -113,46 +113,23 @@ export function useRealtimeTranscription() {
         const msg = JSON.parse(event.data);
         if (msg.type === 'transcript') {
           const data = msg as TranscriptMessage;
-          // Group words into utterances by speaker turns
-          const newUtterances: Utterance[] = [];
-          let current: Utterance | null = null;
+          // Concatenate all words into a single utterance (no speaker segmentation)
+          if (data.words.length === 0) return;
 
-          for (const w of data.words) {
-            if (current && current.speaker === w.speaker) {
-              current.text += ' ' + w.word;
-              current.end = w.end;
-            } else {
-              if (current) newUtterances.push(current);
-              current = {
-                speaker: w.speaker,
-                text: w.word,
-                start: w.start,
-                end: w.end,
-              };
-            }
-          }
-          if (current) newUtterances.push(current);
+          const text = data.words.map(w => w.word).join(' ');
+          const utterance: Utterance = {
+            speaker: 0,
+            text,
+            start: data.words[0].start,
+            end: data.words[data.words.length - 1].end,
+          };
 
           if (data.is_final) {
-            // Commit final results to the utterances list
             setInterimUtterance(null);
-            setUtterances(prev => {
-              const updated = [...prev, ...newUtterances];
-              const uniqueSpeakers = new Set(updated.map(u => u.speaker));
-              setSpeakers(uniqueSpeakers.size);
-              return updated;
-            });
+            setUtterances(prev => [...prev, utterance]);
+            setSpeakers(1);
           } else {
-            // Show interim results as a live preview (replaced on each update)
-            if (newUtterances.length > 0) {
-              const merged: Utterance = {
-                speaker: newUtterances[0].speaker,
-                text: newUtterances.map(u => u.text).join(' '),
-                start: newUtterances[0].start,
-                end: newUtterances[newUtterances.length - 1].end,
-              };
-              setInterimUtterance(merged);
-            }
+            setInterimUtterance(utterance);
           }
         } else if (msg.type === 'error') {
           setError(msg.message);

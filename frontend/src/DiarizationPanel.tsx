@@ -1,15 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { Utterance } from './types';
 
-const SPEAKER_COLORS = [
-  '#3b82f6', // blue
-  '#ef4444', // red
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-];
-
 interface Props {
   utterances: Utterance[];
   interimUtterance?: Utterance | null;
@@ -18,7 +9,7 @@ interface Props {
   error: string | null;
 }
 
-export function DiarizationPanel({ utterances, interimUtterance, speakers, isRecording, error }: Props) {
+export function DiarizationPanel({ utterances, interimUtterance, isRecording, error }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -60,19 +51,6 @@ export function DiarizationPanel({ utterances, interimUtterance, speakers, isRec
           Live Transcript
         </span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {speakers > 0 && (
-            <span
-              style={{
-                color: '#aaa',
-                fontSize: 12,
-                padding: '2px 8px',
-                borderRadius: 8,
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-              }}
-            >
-              {speakers} speaker{speakers !== 1 ? 's' : ''}
-            </span>
-          )}
           {isRecording && (
             <span
               style={{
@@ -115,32 +93,10 @@ export function DiarizationPanel({ utterances, interimUtterance, speakers, isRec
           </div>
         )}
         {utterances.map((u, i) => (
-          <div key={i} style={{ marginBottom: 6 }}>
-            <span
-              style={{
-                color: SPEAKER_COLORS[u.speaker % SPEAKER_COLORS.length],
-                fontWeight: 600,
-                fontSize: 13,
-              }}
-            >
-              Speaker {u.speaker + 1}:
-            </span>{' '}
-            <span style={{ color: '#e0e0e0' }}>{u.text}</span>
-          </div>
+          <span key={i} style={{ color: '#e0e0e0' }}>{u.text} </span>
         ))}
         {interimUtterance && (
-          <div style={{ marginBottom: 6, opacity: 0.5 }}>
-            <span
-              style={{
-                color: SPEAKER_COLORS[interimUtterance.speaker % SPEAKER_COLORS.length],
-                fontWeight: 600,
-                fontSize: 13,
-              }}
-            >
-              Speaker {interimUtterance.speaker + 1}:
-            </span>{' '}
-            <span style={{ color: '#e0e0e0', fontStyle: 'italic' }}>{interimUtterance.text}</span>
-          </div>
+          <span style={{ color: '#e0e0e0', opacity: 0.5, fontStyle: 'italic' }}>{interimUtterance.text}</span>
         )}
       </div>
 
