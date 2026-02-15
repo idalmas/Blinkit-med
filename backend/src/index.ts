@@ -9,6 +9,7 @@
  *   POST /upload    — upload text → embed → index into Elasticsearch
  *   POST /generate  — dialog in → kNN RAG + Cerebras → personalized response
  *   POST /long      — bulk ingest: chunk long text → embed all → bulk index
+ *   POST /getContext — retrieve relevant context chunks for a given app (+optional text)
  *   GET  /documents — browse everything stored in the vector DB (debug/demo)
  *
  * On startup:
@@ -28,6 +29,7 @@ import upload from "./routes/upload";
 import generate from "./routes/generate";
 import long from "./routes/long";
 import documents from "./routes/documents";
+import getContext from "./routes/getContext";
 
 const app = new Hono();
 
@@ -52,6 +54,7 @@ app.route("/upload", upload);
 app.route("/generate", generate);
 app.route("/long", long);
 app.route("/documents", documents);
+app.route("/getContext", getContext);
 
 /** Health check — useful for uptime monitoring. */
 app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
