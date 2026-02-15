@@ -1,12 +1,18 @@
 /**
  * index.ts — Hono App Entry Point
  *
- * Sets up the Hono web server with CORS middleware, mounts the API routes,
- * and exports the app for Bun to serve.
+ * Sets up the Hono web server with CORS middleware, bootstraps the
+ * Elasticsearch index, mounts the API routes, and exports the app for
+ * Bun to serve.
  *
  * Routes:
- *   POST /upload    — upload transcript text → embed → store in pgvector
- *   POST /generate  — dialog in → RAG + Cerebras → two response options out
+ *   POST /upload    — upload text → embed → index into Elasticsearch
+ *   POST /generate  — dialog in → kNN RAG + Cerebras → personalized response
+ *   POST /long      — bulk ingest: chunk long text → embed all → bulk index
+ *
+ * On startup:
+ *   - Calls ensureIndex() to create the Elasticsearch `person-context` index
+ *     if it doesn't already exist.
  *
  * Run with:
  *   bun run dev      (hot-reload)
@@ -16,8 +22,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { ensureIndex } from "./lib/elasticsearch";
 import upload from "./routes/upload";
 import generate from "./routes/generate";
+import long from "./routes/long";
 
 const app = new Hono();
 
@@ -40,15 +48,24 @@ app.use("/*", logger());
 
 app.route("/upload", upload);
 app.route("/generate", generate);
+app.route("/long", long);
 
 /** Health check — useful for uptime monitoring. */
 app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
 
-/* ── Export for Bun ─────────────────────────────────────────── */
+/* ── Bootstrap & Export for Bun ─────────────────────────────── */
 
 const PORT = Number(process.env.PORT) || 3001;
 
-console.log(`🚀 Revive backend listening on http://localhost:${PORT}`);
+// Create the Elasticsearch index if it doesn't exist, then start serving.
+ensureIndex()
+  .then(() => {
+    console.log(`🚀 Revive backend listening on http://localhost:${PORT}`);
+  })
+  .catch((err) => {
+    console.error("❌ Failed to bootstrap Elasticsearch index:", err);
+    process.exit(1);
+  });
 
 export default {
   port: PORT,

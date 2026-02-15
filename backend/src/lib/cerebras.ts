@@ -1,9 +1,9 @@
 /**
- * cerebras.ts — Cerebras Client & Two-Response Generation Helper
+ * cerebras.ts — Cerebras Client & Response Generation Helper
  *
- * Wraps the Cerebras Cloud SDK to generate two distinct response options for a
- * conversation dialog. We call chat completions twice with different
- * temperature / seed combos so the user gets meaningfully different replies.
+ * Wraps the Cerebras Cloud SDK to generate a single response for a
+ * conversation dialog. The system prompt includes RAG context retrieved
+ * from Elasticsearch so the response is grounded in the person's real data.
  *
  * Used by: routes/generate.ts
  *
@@ -65,50 +65,33 @@ function toCerebrasMessages(msgs: DialogMessage[]): CerebrasMessage[] {
 }
 
 /**
- * generateTwoOptions — produces two distinct response options for a dialog.
+ * generateResponse — produces a single response for a dialog using Cerebras.
  *
- * @param systemPrompt  The system-level instruction (includes RAG context).
+ * @param systemPrompt  The system-level instruction (includes RAG context
+ *                      retrieved from Elasticsearch).
  * @param dialog        The conversation history as an array of messages.
- * @returns             A tuple of two response strings [optionA, optionB].
+ * @returns             A single response string.
  */
-export async function generateTwoOptions(
+export async function generateResponse(
   systemPrompt: string,
   dialog: DialogMessage[]
-): Promise<[string, string]> {
+): Promise<string> {
   const messages = toCerebrasMessages([
     { role: "system", content: systemPrompt },
     ...dialog,
   ]);
 
-  const paramsA: ChatCompletionCreateParamsNonStreaming = {
+  const params: ChatCompletionCreateParamsNonStreaming = {
     model: MODEL,
     messages,
     stream: false,
     temperature: 0.7,
-    seed: 42,
     max_tokens: 512,
   };
 
-  const paramsB: ChatCompletionCreateParamsNonStreaming = {
-    model: MODEL,
-    messages,
-    stream: false,
-    temperature: 0.9,
-    seed: 123,
-    max_tokens: 512,
-  };
+  const response = (await client.chat.completions.create(
+    params
+  )) as ChatCompletion.ChatCompletionResponse;
 
-  // Fire both requests in parallel for speed.
-  // Cast to ChatCompletionResponse since we set stream: false.
-  const [responseA, responseB] = await Promise.all([
-    client.chat.completions.create(paramsA) as Promise<ChatCompletion.ChatCompletionResponse>,
-    client.chat.completions.create(paramsB) as Promise<ChatCompletion.ChatCompletionResponse>,
-  ]);
-
-  const optionA =
-    responseA.choices[0]?.message?.content ?? "(no response generated)";
-  const optionB =
-    responseB.choices[0]?.message?.content ?? "(no response generated)";
-
-  return [optionA, optionB];
+  return response.choices[0]?.message?.content ?? "(no response generated)";
 }
