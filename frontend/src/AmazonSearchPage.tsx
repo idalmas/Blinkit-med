@@ -31,7 +31,19 @@ import { FaAmazon, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch } fro
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 /** Base URL for the Hono backend (Elasticsearch + BrightData + Cerebras). */
-const API_BASE = 'http://localhost:3003'
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
+const FALLBACK_AMAZON_SUGGESTIONS = [
+  'cozy cabin decor',
+  'cast iron cookware set',
+  'gardening tools kit',
+  'warm winter blanket',
+  'outdoor lantern rechargeable',
+  'handmade leather journal',
+  'camping cookware mess kit',
+  'durable rain jacket',
+  'pet grooming brush',
+  'wood carving starter kit',
+]
 
 /**
  * PERSON — the persona whose Elasticsearch context is used for personalisation.
@@ -92,6 +104,42 @@ function normalizeProducts(raw: unknown): AmazonProduct[] {
   return []
 }
 
+/**
+ * parseSuggestionArray — extracts suggestion strings from getContext payload.
+ *
+ * Supports both `result` (JSON parsed by backend) and `rawResult` (raw LLM text)
+ * so the UI still gets usable suggestions when parsing is imperfect.
+ *
+ * @param payload Raw response body from /getContext.
+ * @returns A cleaned array of non-empty suggestion strings.
+ */
+function parseSuggestionArray(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') return []
+  const obj = payload as Record<string, unknown>
+
+  const fromResult = Array.isArray(obj.result)
+    ? obj.result.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    : []
+  if (fromResult.length > 0) return fromResult
+
+  if (typeof obj.rawResult === 'string') {
+    const raw = obj.rawResult.trim()
+    const match = raw.match(/\[[\s\S]*\]/)
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0])
+        if (Array.isArray(parsed)) {
+          return parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        }
+      } catch {
+        // Ignore parse failures and allow fallback suggestions.
+      }
+    }
+  }
+
+  return []
+}
+
 export default function AmazonSearchPage() {
   const navigate = useNavigate()
   const [keyword, setKeyword] = useState('')
@@ -107,7 +155,9 @@ export default function AmazonSearchPage() {
   // Personalized suggestions from getContext (Elasticsearch + Cerebras)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
   const [activeSuggestion, setActiveSuggestion] = useState<string | null>(null)
+  const autoSearchTriggeredRef = useRef(false)
 
   // Index of the suggestion currently highlighted via blink navigation
   const [highlightedSuggestionIdx, setHighlightedSuggestionIdx] = useState(0)
@@ -365,27 +415,50 @@ export default function AmazonSearchPage() {
     let cancelled = false
     async function fetchSuggestions() {
       setSuggestionsLoading(true)
+      setSuggestionsError(null)
       try {
         console.log('[getContext] Fetching personalized suggestions...')
-        const res = await fetch(`${API_BASE}/getContext`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ app: 'Amazon', person: PERSON, k: 10 }),
-        })
-        if (!res.ok) {
-          console.warn('[getContext] Non-OK response:', res.status)
-          return
+        const appCandidates = ['Amazon', 'amazon']
+        let loaded = false
+
+        for (const appName of appCandidates) {
+          const res = await fetch(`${API_BASE}/getContext`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ app: appName, person: PERSON, k: 10 }),
+          })
+
+          let payload: unknown = null
+          try {
+            payload = await res.json()
+          } catch {
+            payload = null
+          }
+
+          if (!res.ok) {
+            console.warn(`[getContext] Non-OK response for app="${appName}":`, res.status, payload)
+            continue
+          }
+
+          const items = parseSuggestionArray(payload)
+          if (!cancelled && items.length > 0) {
+            console.log(`[getContext] Got ${items.length} suggestions for app="${appName}":`, items)
+            setSuggestions(items.slice(0, 20))
+            loaded = true
+            break
+          }
         }
-        const data = await res.json()
-        const items: string[] = Array.isArray(data.result)
-          ? data.result.filter((s: unknown) => typeof s === 'string' && (s as string).trim().length > 0)
-          : []
-        if (!cancelled && items.length > 0) {
-          console.log(`[getContext] Got ${items.length} suggestions:`, items)
-          setSuggestions(items)
+
+        if (!cancelled && !loaded) {
+          setSuggestions(FALLBACK_AMAZON_SUGGESTIONS)
+          setSuggestionsError('Could not load personalized suggestions. Showing defaults.')
         }
       } catch (err) {
         console.error('[getContext] Error:', err)
+        if (!cancelled) {
+          setSuggestions(FALLBACK_AMAZON_SUGGESTIONS)
+          setSuggestionsError(`Could not reach ${API_BASE}. Showing defaults.`)
+        }
       } finally {
         if (!cancelled) setSuggestionsLoading(false)
       }
@@ -393,6 +466,24 @@ export default function AmazonSearchPage() {
     fetchSuggestions()
     return () => { cancelled = true }
   }, [])
+
+  /**
+   * autoStartFirstSuggestion — kicks off a search as soon as suggestions load.
+   *
+   * This avoids a "stuck" first impression where users see no data while waiting
+   * to manually click. It runs once per page load and only when search is idle.
+   *
+   * @returns void
+   */
+  useEffect(() => {
+    if (autoSearchTriggeredRef.current) return
+    if (suggestionsLoading || suggestions.length === 0) return
+    if (status !== 'idle' || products.length > 0) return
+
+    autoSearchTriggeredRef.current = true
+    setHighlightedSuggestionIdx(0)
+    void handleSuggestionClick(suggestions[0])
+  }, [suggestionsLoading, suggestions, status, products.length, handleSuggestionClick])
 
   // No auto-search — user must navigate suggestions with winks and
   // triple-blink to confirm before any search is triggered.
@@ -638,6 +729,16 @@ export default function AmazonSearchPage() {
               }}
             />
             Finding personalized suggestions...
+          </div>
+        )}
+        {!suggestionsLoading && suggestionsError && (
+          <div
+            style={{
+              color: 'rgba(255,255,255,0.5)',
+              fontSize: 12,
+            }}
+          >
+            {suggestionsError}
           </div>
         )}
         {/* Horizontal suggestion list — hidden once results are showing */}

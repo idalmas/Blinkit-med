@@ -7,7 +7,7 @@ import { useRealtimeTranscription } from './useRealtimeTranscription'
 import { DiarizationPanel } from './DiarizationPanel'
 import type { Utterance } from './types'
 
-const API_BASE = 'http://localhost:3003'
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
 
 type TalkState =
   | 'IDLE'

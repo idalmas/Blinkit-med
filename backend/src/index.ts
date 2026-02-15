@@ -27,6 +27,7 @@
  */
 
 import { Hono } from "hono";
+import { createBunWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { ensureIndex, ensurePersonField } from "./lib/elasticsearch";
@@ -38,6 +39,7 @@ import getContext from "./routes/getContext";
 import apps from "./routes/apps";
 
 const app = new Hono();
+const { upgradeWebSocket, websocket } = createBunWebSocket();
 
 /* ── Middleware ──────────────────────────────────────────────── */
 
@@ -62,6 +64,27 @@ app.route("/long", long);
 app.route("/documents", documents);
 app.route("/getContext", getContext);
 app.route("/apps", apps);
+/**
+ * GET /ws — minimal realtime transcription socket endpoint.
+ *
+ * This endpoint accepts the Talk page WebSocket connection so the client can
+ * start microphone streaming without failing handshake. Incoming audio frames
+ * are currently ignored until a transcription engine is wired in.
+ */
+app.get(
+  "/ws",
+  upgradeWebSocket(() => ({
+    onOpen(_, ws) {
+      ws.send(JSON.stringify({ type: "connected" }));
+    },
+    onMessage() {
+      // Placeholder: audio frame processing will be added here.
+    },
+    onClose() {
+      // No-op.
+    },
+  }))
+);
 
 /** Health check — useful for uptime monitoring. */
 app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
@@ -85,4 +108,5 @@ ensureIndex()
 export default {
   port: PORT,
   fetch: app.fetch,
+  websocket,
 };
