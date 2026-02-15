@@ -21,7 +21,7 @@
  *   - centerIdx / selectedOrigIdx — carousel navigation
  *
  * Parent: mounted by src/main.tsx at /apps/amazon
- * Dependencies: useBlinkDetection, backend at localhost:3001
+ * Dependencies: useBlinkDetection, backend (see config.ts for API_BASE)
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -29,17 +29,7 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaAmazon, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
-
-/** Base URL for the Hono backend (Elasticsearch + BrightData + Cerebras). */
-const API_BASE = 'http://localhost:3003'
-
-/**
- * PERSON — the persona whose Elasticsearch context is used for personalisation.
- *
- * Set via the VITE_PERSON env var in frontend/.env (e.g. VITE_PERSON=hagrid).
- * Defaults to "ian" when unset.
- */
-const PERSON = (import.meta.env.VITE_PERSON ?? 'ian').trim().toLowerCase()
+import { API_BASE, PERSON } from './config'
 
 /** How often (ms) to poll BrightData for scrape completion. */
 const POLL_INTERVAL = 3000

@@ -26,10 +26,9 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaSearch, FaArrowLeft, FaGlobe, FaExternalLinkAlt } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import { API_BASE, PERSON } from './config'
 
-const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
 const POLL_INTERVAL = 3000
-const PERSON = (import.meta.env.VITE_PERSON ?? 'ian').trim().toLowerCase()
 
 interface SearchResult {
   title?: string
