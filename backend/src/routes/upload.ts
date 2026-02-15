@@ -1,63 +1,103 @@
 /**
- * upload.ts — POST /upload Route
+ * upload.ts — POST /upload Route & uploadChunk() Helper
  *
- * Accepts a piece of text (e.g. a transcript chunk from the onboarding flow),
- * generates an embedding via OpenAI, and stores the text + embedding in the
- * Supabase `documents` table for later RAG retrieval.
+ * Accepts a piece of text (e.g. a transcript chunk), generates an embedding
+ * via OpenAI, and indexes the text + embedding into the Elasticsearch
+ * `person-context` index for later kNN retrieval.
+ *
+ * Also exports the `uploadChunk()` helper so other routes (e.g. `/long`)
+ * can reuse the embed-and-index pipeline without duplicating logic.
+ *
+ * This is how the vector DB builds up over time — each call adds more
+ * personal context that future queries can draw from.
  *
  * Parent: mounted by src/index.ts at `/upload`
  *
+ * Exported helper:
+ *   uploadChunk(text, speaker, source) → { id: string }
+ *
  * Request body (JSON):
- *   - text:    string  — the transcript text to store (required).
- *   - speaker: string  — optional label for who said it (e.g. "Ian").
+ *   - text:    string — the content to store (required).
+ *   - speaker: string — optional label for who said it (e.g. "Ian").
+ *   - source:  string — optional label for the data source (e.g. "transcript",
+ *                        "notes", "calendar"). Defaults to "transcript".
  *
  * Response (JSON):
  *   - success: boolean
- *   - id:      number  — the auto-generated row id in the documents table.
+ *   - id:      string — the Elasticsearch document ID.
  *
- * Dependencies: lib/supabase.ts, lib/embeddings.ts
+ * Dependencies: lib/elasticsearch.ts, lib/embeddings.ts
+ * Used by: routes/long.ts (imports uploadChunk)
  */
 
 import { Hono } from "hono";
-import { supabase } from "../lib/supabase";
+import { esClient, INDEX_NAME } from "../lib/elasticsearch";
 import { embed } from "../lib/embeddings";
 
 const upload = new Hono();
 
 /**
- * POST / — upload a transcript chunk.
+ * uploadChunk — embeds a piece of text and indexes it into Elasticsearch.
  *
- * @input  { text: string, speaker?: string }
- * @output { success: true, id: number } | { error: string }
+ * This is the core "embed + store" logic extracted so it can be called
+ * from the /upload route handler AND from routes/long.ts for bulk ingestion.
+ *
+ * @param text     The text content to embed and store.
+ * @param speaker  Who said it (nullable, e.g. "Ian").
+ * @param source   Data-source label (e.g. "transcript", "notes"). Non-nullable.
+ * @returns        An object with the Elasticsearch document `id`.
+ */
+export async function uploadChunk(
+  text: string,
+  speaker: string | null,
+  source: string
+): Promise<{ id: string }> {
+  const embedding = await embed(text);
+
+  const result = await esClient.index({
+    index: INDEX_NAME,
+    document: {
+      content: text,
+      speaker,
+      source,
+      embedding,
+      created_at: new Date().toISOString(),
+    },
+  });
+
+  return { id: result._id };
+}
+
+/**
+ * POST / — upload a single chunk of personal context.
+ *
+ * @input  { text: string, speaker?: string, source?: string }
+ * @output { success: true, id: string } | { error: string }
  */
 upload.post("/", async (c) => {
   try {
-    const body = await c.req.json<{ text?: string; speaker?: string }>();
+    const body = await c.req.json<{
+      text?: string;
+      speaker?: string;
+      source?: string;
+    }>();
 
     /* ── Validate ──────────────────────────────────────────── */
     if (!body.text || body.text.trim().length === 0) {
-      return c.json({ error: "\"text\" is required and must be non-empty." }, 400);
+      return c.json(
+        { error: '"text" is required and must be non-empty.' },
+        400
+      );
     }
 
     const text = body.text.trim();
     const speaker = body.speaker?.trim() || null;
+    const source = body.source?.trim() || "transcript";
 
-    /* ── Embed ─────────────────────────────────────────────── */
-    const embedding = await embed(text);
+    /* ── Embed & index via helper ─────────────────────────── */
+    const { id } = await uploadChunk(text, speaker, source);
 
-    /* ── Store in Supabase ─────────────────────────────────── */
-    const { data, error } = await supabase
-      .from("documents")
-      .insert({ content: text, speaker, embedding: JSON.stringify(embedding) })
-      .select("id")
-      .single();
-
-    if (error) {
-      console.error("Supabase insert error:", error);
-      return c.json({ error: "Failed to store document." }, 500);
-    }
-
-    return c.json({ success: true, id: data.id });
+    return c.json({ success: true, id });
   } catch (err) {
     console.error("Upload error:", err);
     return c.json({ error: "Internal server error." }, 500);
