@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { FaAmazon, FaMapMarkerAlt, FaComments } from 'react-icons/fa'
+import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook } from 'react-icons/fa'
 
 interface AppCard {
   name: string
@@ -34,6 +34,30 @@ const apps: AppCard[] = [
     shadow: 'rgba(16, 185, 129, 0.4)',
     description: 'Chat with GPT',
     path: '/apps/chat',
+  },
+  {
+    name: 'Web Search',
+    icon: <FaSearch size={48} />,
+    gradient: 'linear-gradient(135deg, #4285F4 0%, #EA4335 33%, #FBBC05 66%, #34A853 100%)',
+    shadow: 'rgba(66, 133, 244, 0.4)',
+    description: 'Search Google SERP',
+    path: '/apps/web-search',
+  },
+  {
+    name: 'Flappy Bird',
+    icon: <FaDove size={48} />,
+    gradient: 'linear-gradient(135deg, #FFD600 0%, #FF6D00 50%, #FFD600 100%)',
+    shadow: 'rgba(255, 214, 0, 0.4)',
+    description: 'Blink to flap & fly',
+    path: '/apps/flappy-bird',
+  },
+  {
+    name: 'Books',
+    icon: <FaBook size={48} />,
+    gradient: 'linear-gradient(135deg, #D4A574 0%, #8B6914 50%, #D4A574 100%)',
+    shadow: 'rgba(212, 165, 116, 0.4)',
+    description: 'Read classic literature',
+    path: '/apps/books',
   },
 ]
 
@@ -202,6 +226,21 @@ export default function AppsPage() {
         @keyframes float2 {
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-12px); }
+        }
+
+        @keyframes float3 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-9px); }
+        }
+
+        @keyframes float4 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-11px); }
+        }
+
+        @keyframes float5 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-10px); }
         }
 
         .app-card:hover {
