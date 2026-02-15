@@ -72,7 +72,7 @@ export default function MapsPage() {
 
   const handleBlink = useCallback(
     (type: BlinkType) => {
-      if (type === 'long-close') {
+      if (type === 'long-close' || type === 'triple') {
         navigate('/apps')
         return
       }
