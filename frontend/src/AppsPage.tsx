@@ -1,6 +1,33 @@
+/**
+ * AppsPage — App launcher grid with blink-based navigation.
+ *
+ * Displays all available apps (Amazon, Maps, ChatGPT, Web Search, Flappy Bird,
+ * Books) as a card grid. Users can navigate entirely hands-free:
+ *
+ *   - wink-left  → move highlight to the previous app card
+ *   - wink-right → move highlight to the next app card
+ *   - triple blink → open the highlighted app
+ *
+ * The currently highlighted card is visually distinguished with a lifted
+ * transform, a glowing border matching the app's brand colour, and a pulsing
+ * ring animation so it's unmistakable even from a distance.
+ *
+ * A small webcam preview + blink-status badge sits in the bottom-right corner
+ * (same placement as every other blink-enabled page for consistency).
+ *
+ * Parent: mounted by src/main.tsx at /apps
+ * Children: none (navigates to individual app pages)
+ * Dependencies: useBlinkDetection (blink/wink hook), react-webcam, react-icons
+ */
+
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Webcam from 'react-webcam'
+import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook } from 'react-icons/fa'
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
 
+/** Describes a single app card in the launcher grid. */
 interface AppCard {
   name: string
   icon: React.ReactNode
@@ -10,6 +37,7 @@ interface AppCard {
   path?: string
 }
 
+/** All available apps rendered in the grid. */
 const apps: AppCard[] = [
   {
     name: 'Amazon',
@@ -69,8 +97,57 @@ const apps: AppCard[] = [
   },
 ]
 
+/**
+ * AppsPage component.
+ *
+ * Renders the app launcher grid and wires up blink detection so the user can
+ * navigate and open apps without touching the keyboard/mouse.
+ *
+ * @returns The full-screen apps launcher.
+ */
 export default function AppsPage() {
   const navigate = useNavigate()
+
+  /** Index of the app card currently highlighted via blink navigation. */
+  const [highlightIdx, setHighlightIdx] = useState(0)
+
+  /**
+   * Once the initial floatIn entrance animations finish, this flips to true so
+   * cards that lose their highlight only resume the gentle bob — they never
+   * replay the floatIn (which starts at opacity 0 and causes a flash).
+   */
+  const [hasAnimatedIn, setHasAnimatedIn] = useState(false)
+  useEffect(() => {
+    // Longest entrance delay: (apps.length - 1) * 0.12s + 0.6s duration = ~1.2s
+    const timer = setTimeout(() => setHasAnimatedIn(true), 1400)
+    return () => clearTimeout(timer)
+  }, [])
+
+  /**
+   * handleBlink — routes blink/wink events to navigation actions.
+   *
+   * @param type - The detected blink type from useBlinkDetection.
+   *
+   * Mapping:
+   *   wink-right → next app
+   *   wink-left  → previous app
+   *   triple     → open highlighted app
+   */
+  const handleBlink = useCallback(
+    (type: BlinkType) => {
+      if (type === 'wink-right') {
+        setHighlightIdx((prev) => (prev + 1) % apps.length)
+      } else if (type === 'wink-left') {
+        setHighlightIdx((prev) => (prev - 1 + apps.length) % apps.length)
+      } else if (type === 'triple') {
+        const app = apps[highlightIdx]
+        if (app?.path) navigate(app.path)
+      }
+    },
+    [highlightIdx, navigate],
+  )
+
+  const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
 
   return (
     <div
@@ -116,11 +193,25 @@ export default function AppsPage() {
         style={{
           color: 'rgba(255,255,255,0.4)',
           fontSize: 16,
-          marginBottom: 56,
+          marginBottom: 16,
           marginTop: 0,
         }}
       >
         Connect with your favorite platforms
+      </p>
+
+      {/* Blink navigation hint */}
+      <p
+        style={{
+          color: 'rgba(255,255,255,0.25)',
+          fontSize: 13,
+          marginBottom: 48,
+          marginTop: 0,
+          textAlign: 'center',
+          lineHeight: 1.6,
+        }}
+      >
+        Wink left/right to browse &middot; Triple blink to open
       </p>
 
       <div
@@ -132,80 +223,149 @@ export default function AppsPage() {
           padding: '0 24px',
         }}
       >
-        {apps.map((app, i) => (
-          <div
-            key={app.name}
-            className="app-card"
-            onClick={() => app.path && navigate(app.path)}
-            style={{
-              width: 200,
-              height: 240,
-              borderRadius: 24,
-              background: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 20,
-              cursor: 'pointer',
-              transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-              animation: `floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.12}s both, float${i} 6s ease-in-out ${i * 0.8}s infinite`,
-              position: 'relative',
-            }}
-            onMouseEnter={(e) => {
-              const el = e.currentTarget
-              el.style.transform = 'translateY(-16px) scale(1.05)'
-              el.style.boxShadow = `0 32px 64px -16px ${app.shadow}, 0 0 0 1px rgba(255,255,255,0.12)`
-              el.style.background = 'rgba(255, 255, 255, 0.08)'
-            }}
-            onMouseLeave={(e) => {
-              const el = e.currentTarget
-              el.style.transform = ''
-              el.style.boxShadow = ''
-              el.style.background = 'rgba(255, 255, 255, 0.04)'
-            }}
-          >
-            {/* Icon container with gradient background */}
+        {apps.map((app, i) => {
+          const isHighlighted = highlightIdx === i
+
+          return (
             <div
+              key={app.name}
+              className="app-card"
+              onClick={() => app.path && navigate(app.path)}
+              onMouseEnter={() => setHighlightIdx(i)}
               style={{
-                width: 88,
-                height: 88,
-                borderRadius: 22,
-                background: app.gradient,
+                width: 200,
+                height: 240,
+                borderRadius: 24,
+                background: isHighlighted
+                  ? 'rgba(255, 255, 255, 0.10)'
+                  : 'rgba(255, 255, 255, 0.04)',
+                border: isHighlighted
+                  ? `2px solid ${app.shadow}`
+                  : '1px solid rgba(255, 255, 255, 0.08)',
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#fff',
-                boxShadow: `0 8px 32px -4px ${app.shadow}`,
-                transition: 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease',
+                gap: 20,
+                cursor: 'pointer',
+                // Highlighted cards ease-in smoothly; un-highlighted snap back instantly
+                transition: isHighlighted
+                  ? 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease, background 0.3s ease, border-color 0.3s ease'
+                  : 'none',
+                animation: isHighlighted
+                  ? undefined
+                  : hasAnimatedIn
+                    ? `float${i} 6s ease-in-out ${i * 0.8}s infinite`
+                    : `floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.12}s both, float${i} 6s ease-in-out ${i * 0.8}s infinite`,
+                transform: isHighlighted ? 'translateY(-16px) scale(1.08)' : undefined,
+                boxShadow: isHighlighted
+                  ? `0 32px 64px -16px ${app.shadow}, 0 0 40px ${app.shadow}, 0 0 0 1px rgba(255,255,255,0.15)`
+                  : undefined,
+                position: 'relative',
+                zIndex: isHighlighted ? 10 : 1,
               }}
             >
-              {app.icon}
-            </div>
+              {/* Pulsing ring around highlighted card */}
+              {isHighlighted && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: -6,
+                    borderRadius: 28,
+                    border: `2px solid ${app.shadow}`,
+                    opacity: 0.5,
+                    animation: 'highlightPulse 2s ease-in-out infinite',
+                    pointerEvents: 'none',
+                  }}
+                />
+              )}
 
-            <div style={{ textAlign: 'center' }}>
+              {/* Icon container with gradient background */}
               <div
                 style={{
+                  width: 88,
+                  height: 88,
+                  borderRadius: 22,
+                  background: app.gradient,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   color: '#fff',
-                  fontSize: 17,
-                  fontWeight: 600,
-                  marginBottom: 4,
+                  boxShadow: isHighlighted
+                    ? `0 12px 40px -4px ${app.shadow}`
+                    : `0 8px 32px -4px ${app.shadow}`,
+                  transition: 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease',
+                  transform: isHighlighted ? 'scale(1.08)' : undefined,
                 }}
               >
-                {app.name}
+                {app.icon}
               </div>
-              <div
-                style={{
-                  color: 'rgba(255,255,255,0.35)',
-                  fontSize: 13,
-                }}
-              >
-                {app.description}
+
+              <div style={{ textAlign: 'center' }}>
+                <div
+                  style={{
+                    color: '#fff',
+                    fontSize: 17,
+                    fontWeight: 600,
+                    marginBottom: 4,
+                  }}
+                >
+                  {app.name}
+                </div>
+                <div
+                  style={{
+                    color: isHighlighted ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.35)',
+                    fontSize: 13,
+                    transition: 'color 0.3s ease',
+                  }}
+                >
+                  {app.description}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
+      </div>
+
+      {/* Webcam preview — matches placement on all other blink-enabled pages */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 20,
+          right: 20,
+          width: 160,
+          height: 120,
+          borderRadius: 12,
+          overflow: 'hidden',
+          border: '2px solid rgba(255,255,255,0.15)',
+          zIndex: 10,
+        }}
+      >
+        <Webcam
+          ref={webcamRef}
+          audio={false}
+          videoConstraints={{ facingMode: 'user', width: 640, height: 480 }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          mirrored
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 4,
+            left: 4,
+            fontSize: 10,
+            color: blinkStatus === 'detecting' ? '#4ade80' : 'rgba(255,255,255,0.5)',
+            background: 'rgba(0,0,0,0.6)',
+            padding: '2px 6px',
+            borderRadius: 4,
+          }}
+        >
+          {blinkStatus === 'loading'
+            ? 'Loading...'
+            : blinkStatus === 'detecting'
+              ? 'Blink active'
+              : blinkStatus}
+        </div>
       </div>
 
       {/* Keyframe animations injected via <style> */}
@@ -219,6 +379,11 @@ export default function AppsPage() {
             opacity: 1;
             transform: translateY(0) scale(1);
           }
+        }
+
+        @keyframes highlightPulse {
+          0%, 100% { opacity: 0.5; transform: scale(1); }
+          50% { opacity: 0.2; transform: scale(1.03); }
         }
 
         @keyframes float0 {

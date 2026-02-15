@@ -26,6 +26,8 @@
  *
  * Request body (JSON):
  *   - text:            string  — the full text to chunk and upload (required).
+ *   - person:          string  — the persona this data belongs to (required,
+ *                                 e.g. "ian", "hagrid").
  *   - speaker:         string  — optional label for who said it (e.g. "Ian").
  *   - source:          string  — optional data-source label. Defaults to
  *                                 "transcript".
@@ -201,7 +203,7 @@ function semanticChunk(
 /**
  * POST / — semantically chunk a long text and upload every chunk.
  *
- * @input  { text: string, speaker?: string, source?: string,
+ * @input  { text: string, person: string, speaker?: string, source?: string,
  *           threshold?: number, minChunkSentences?: number,
  *           maxChunkSentences?: number }
  * @output { success: true, totalChunks: number, ids: string[] }
@@ -211,6 +213,7 @@ long.post("/", async (c) => {
   try {
     const body = await c.req.json<{
       text?: string;
+      person?: string;
       speaker?: string;
       source?: string;
       threshold?: number;
@@ -226,7 +229,15 @@ long.post("/", async (c) => {
       );
     }
 
+    if (!body.person || body.person.trim().length === 0) {
+      return c.json(
+        { error: '"person" is required and must be a non-empty string.' },
+        400
+      );
+    }
+
     const text = body.text.trim();
+    const person = body.person.trim().toLowerCase();
     const speaker = body.speaker?.trim() || null;
     const source = body.source?.trim() || "transcript";
     const threshold = body.threshold ?? DEFAULT_THRESHOLD;
@@ -271,7 +282,7 @@ long.post("/", async (c) => {
 
     for (let i = 0; i < chunks.length; i++) {
       try {
-        const { id } = await uploadChunk(chunks[i], speaker, source);
+        const { id } = await uploadChunk(chunks[i], speaker, source, person);
         ids.push(id);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "unknown error";

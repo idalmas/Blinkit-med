@@ -1,11 +1,35 @@
+/**
+ * WebSearchPage — Personalized web search experience with blink navigation.
+ *
+ * On mount, calls POST /getContext with app "Web Search" to retrieve
+ * 20 personalized search queries generated from stored user context.
+ * Those suggestions are shown as clickable chips and can kick off SERP
+ * searches immediately.
+ *
+ * Data flow:
+ *   1) Page load -> POST /getContext { app: "Web Search", person } -> suggestions
+ *   2) User chooses suggestion (or types manually) -> POST /apps/web-search
+ *   3) Poll GET /apps/web-search-status/:id until ready
+ *   4) Render results in carousel; blink controls navigate/open results
+ *
+ * Parent: mounted by src/main.tsx at /apps/web-search
+ * Child/related systems:
+ *   - useBlinkDetection: drives wink/double/triple/long-close behavior
+ *   - Backend routes: /getContext, /apps/web-search, /apps/web-search-status/:id
+ *
+ * CSS/styling notes:
+ *   - Results use layered depth (scale + translate + opacity) for carousel focus.
+ *   - Suggestion chips use stronger border/contrast when active or highlighted.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaSearch, FaArrowLeft, FaGlobe, FaExternalLinkAlt } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
-const API_BASE = 'http://localhost:3003'
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
 const POLL_INTERVAL = 3000
+const PERSON = (import.meta.env.VITE_PERSON ?? 'ian').trim().toLowerCase()
 
 interface SearchResult {
   title?: string
@@ -24,7 +48,63 @@ interface SearchResult {
 
 type SearchStatus = 'idle' | 'submitting' | 'polling' | 'ready' | 'error'
 
-/** Safely coerce BrightData SERP response into an array of results */
+/**
+ * parseResponseBody — safely parses fetch response as JSON or plain text.
+ *
+ * @param res Fetch response object.
+ * @returns Parsed payload (object if JSON, string otherwise, null on empty body).
+ */
+async function parseResponseBody(res: Response): Promise<unknown> {
+  const text = await res.text()
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
+/**
+ * parseSuggestionArray — extracts a string[] from getContext response payload.
+ *
+ * Tries `result` first, then falls back to parsing `rawResult` if needed.
+ *
+ * @param payload Raw JSON payload from /getContext.
+ * @returns A cleaned array of non-empty suggestion strings.
+ */
+function parseSuggestionArray(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') return []
+  const obj = payload as Record<string, unknown>
+
+  const fromResult = Array.isArray(obj.result)
+    ? obj.result.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    : []
+  if (fromResult.length > 0) return fromResult
+
+  if (typeof obj.rawResult === 'string') {
+    const raw = obj.rawResult.trim()
+    const match = raw.match(/\[[\s\S]*\]/)
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0])
+        if (Array.isArray(parsed)) {
+          return parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        }
+      } catch {
+        // Ignore parse errors and return empty fallback.
+      }
+    }
+  }
+
+  return []
+}
+
+/**
+ * normalizeResults — safely coerces BrightData SERP response into a results array.
+ *
+ * @param raw The raw API payload.
+ * @returns A normalized array of search-result objects.
+ */
 function normalizeResults(raw: unknown): SearchResult[] {
   if (Array.isArray(raw)) return raw
   if (raw && typeof raw === 'object') {
@@ -37,7 +117,12 @@ function normalizeResults(raw: unknown): SearchResult[] {
   return []
 }
 
-/** Extract a display-friendly domain from a URL */
+/**
+ * getDomain — extracts a display-friendly hostname from a URL.
+ *
+ * @param url A raw URL string.
+ * @returns Hostname without a leading www, or the original input on parse failure.
+ */
 function getDomain(url: string): string {
   try {
     const u = new URL(url)
@@ -47,7 +132,12 @@ function getDomain(url: string): string {
   }
 }
 
-/** Get a favicon URL for a domain */
+/**
+ * getFaviconUrl — builds a favicon endpoint URL for a given page URL.
+ *
+ * @param url A raw URL string.
+ * @returns Favicon URL string (or empty string if URL parsing fails).
+ */
 function getFaviconUrl(url: string): string {
   try {
     const u = new URL(url)
@@ -66,6 +156,13 @@ export default function WebSearchPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const [pollCount, setPollCount] = useState(0)
   const [elapsedSec, setElapsedSec] = useState(0)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const [activeSuggestion, setActiveSuggestion] = useState<string | null>(null)
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
+  const [highlightedSuggestionIdx, setHighlightedSuggestionIdx] = useState(0)
+  const highlightedSuggestionIdxRef = useRef(0)
+  const suggestionClickRef = useRef<(s: string) => void>(() => {})
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const failCountRef = useRef(0)
   const MAX_POLL_FAILURES = 5
@@ -105,6 +202,12 @@ export default function WebSearchPage() {
   const [modalTitle, setModalTitle] = useState('')
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
+  /**
+   * openModal — opens the selected result in the in-page iframe modal.
+   *
+   * @param result The selected search result.
+   * @returns void
+   */
   const openModal = useCallback((result: SearchResult) => {
     const resultUrl = result.url || result.link
     if (!resultUrl) return
@@ -113,6 +216,11 @@ export default function WebSearchPage() {
     setModalTitle(result.title || 'Web Result')
   }, [])
 
+  /**
+   * closeModal — closes the in-page iframe modal and clears selection state.
+   *
+   * @returns void
+   */
   const closeModal = useCallback(() => {
     console.log('[web-search] Closing modal')
     setModalUrl(null)
@@ -148,6 +256,23 @@ export default function WebSearchPage() {
         navigate('/apps')
         return
       }
+      const suggestionsVisible = suggestions.length > 0 && !(status === 'ready' && results.length > 0)
+
+      // Suggestion navigation mode (mirrors Amazon flow)
+      if (suggestionsVisible && results.length === 0) {
+        if (type === 'wink-right') {
+          setHighlightedSuggestionIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
+        } else if (type === 'wink-left') {
+          setHighlightedSuggestionIdx((prev) => Math.max(prev - 1, 0))
+        } else if (type === 'triple') {
+          const idx = highlightedSuggestionIdxRef.current
+          if (idx >= 0 && idx < suggestions.length) {
+            suggestionClickRef.current(suggestions[idx])
+          }
+        }
+        return
+      }
+
       if (type === 'triple') {
         if (modalUrl) {
           closeModal()
@@ -176,7 +301,7 @@ export default function WebSearchPage() {
         }
       }
     },
-    [centerIdx, results, modalUrl, openModal, closeModal, navigate]
+    [centerIdx, results, modalUrl, openModal, closeModal, navigate, suggestions, status]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
@@ -190,6 +315,11 @@ export default function WebSearchPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [modalUrl, closeModal])
 
+  /**
+   * stopPolling — stops the status polling interval and resets poll failure tracking.
+   *
+   * @returns void
+   */
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current)
@@ -200,6 +330,12 @@ export default function WebSearchPage() {
 
   useEffect(() => () => stopPolling(), [stopPolling])
 
+  /**
+   * pollForResults — polls backend status until web search results are ready or failed.
+   *
+   * @param rid Backend request id returned by /apps/web-search.
+   * @returns void
+   */
   const pollForResults = useCallback(
     (rid: string) => {
       setStatus('polling')
@@ -261,10 +397,19 @@ export default function WebSearchPage() {
     [stopPolling, saveToCache]
   )
 
-  const handleSearch = async () => {
-    if (!query.trim()) return
+  /**
+   * runSearch — runs a web search lifecycle for a given query string.
+   *
+   * Checks cache first, then starts a backend search request and begins polling.
+   *
+   * @param rawQuery Search query string to run.
+   * @returns void
+   */
+  const runSearch = useCallback(async (rawQuery: string) => {
+    const normalizedQuery = rawQuery.trim()
+    if (!normalizedQuery) return
 
-    const cacheKey = query.trim().toLowerCase()
+    const cacheKey = normalizedQuery.toLowerCase()
     const cached = cacheRef.current.get(cacheKey)
     if (cached && cached.length > 0) {
       console.log(`[web-search-cache] Hit for "${cacheKey}" — ${cached.length} results`)
@@ -283,41 +428,198 @@ export default function WebSearchPage() {
     setStatus('submitting')
 
     try {
-      console.log(`[web-search] Starting search: query="${query.trim()}"`)
+      console.log(`[web-search] Starting search: query="${normalizedQuery}"`)
       const res = await fetch(`${API_BASE}/apps/web-search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query.trim() }),
+        body: JSON.stringify({ query: normalizedQuery }),
       })
 
-      const data = await res.json()
+      const data = await parseResponseBody(res)
       console.log(`[web-search] Response (${res.status}):`, data)
 
       if (!res.ok && res.status !== 202) {
         console.error(`[web-search] Request failed:`, data)
-        setErrorMsg(data.error || 'Request failed.')
+        const errorText =
+          data && typeof data === 'object' && 'error' in (data as Record<string, unknown>)
+            ? String((data as Record<string, unknown>).error)
+            : typeof data === 'string'
+              ? data
+              : 'Request failed.'
+
+        if (res.status === 404) {
+          setErrorMsg(
+            `Web Search route not found on backend (${API_BASE}/apps/web-search). Restart backend with latest code.`
+          )
+        } else {
+          setErrorMsg(errorText)
+        }
         setStatus('error')
         return
       }
 
-      if (data.request_id) {
-        console.log(`[web-search] Got request_id: ${data.request_id}, starting polling...`)
-        setRequestId(data.request_id)
-        pollForResults(data.request_id)
+      const requestId =
+        data && typeof data === 'object' && 'request_id' in (data as Record<string, unknown>)
+          ? String((data as Record<string, unknown>).request_id)
+          : null
+
+      if (requestId) {
+        console.log(`[web-search] Got request_id: ${requestId}, starting polling...`)
+        setRequestId(requestId)
+        pollForResults(requestId)
       } else {
         setErrorMsg('No request_id returned.')
         setStatus('error')
       }
-    } catch {
-      setErrorMsg('Failed to start search.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to start search.'
+      setErrorMsg(message)
       setStatus('error')
     }
-  }
+  }, [pollForResults, stopPolling])
+
+  /**
+   * handleSearch — triggers a search from the text input value.
+   *
+   * @returns void
+   */
+  const handleSearch = useCallback(async () => {
+    setActiveSuggestion(null)
+    await runSearch(query)
+  }, [query, runSearch])
+
+  /**
+   * handleSuggestionClick — triggers search from a personalized suggestion chip.
+   *
+   * @param suggestion Suggested query string from getContext.
+   * @returns void
+   */
+  const handleSuggestionClick = useCallback(async (suggestion: string) => {
+    setQuery(suggestion)
+    setActiveSuggestion(suggestion)
+    await runSearch(suggestion)
+  }, [runSearch])
+
+  /**
+   * keepSuggestionRefsInSync — keeps refs synchronized for blink handlers.
+   *
+   * @returns void
+   */
+  useEffect(() => {
+    suggestionClickRef.current = (s: string) => { void handleSuggestionClick(s) }
+  }, [handleSuggestionClick])
+
+  /**
+   * keepHighlightedSuggestionRefInSync — mirrors highlighted index for callback reads.
+   *
+   * @returns void
+   */
+  useEffect(() => {
+    highlightedSuggestionIdxRef.current = highlightedSuggestionIdx
+  }, [highlightedSuggestionIdx])
+
+  /**
+   * fetchSuggestionsOnMount — loads personalized query suggestions from getContext.
+   *
+   * Uses the "Web Search" app config so prompt generation follows backend APP_CONFIGS.
+   *
+   * @returns void
+   */
+  useEffect(() => {
+    let cancelled = false
+    /**
+     * fetchSuggestionsForApp — requests personalized suggestions for a specific app key.
+     *
+     * @param appName The app name sent to /getContext.
+     * @returns Response status, parsed payload, and normalized suggestion items.
+     */
+    async function fetchSuggestionsForApp(appName: string): Promise<{
+      status: number
+      payload: unknown
+      items: string[]
+    }> {
+      const res = await fetch(`${API_BASE}/getContext`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app: appName, person: PERSON, k: 10 }),
+      })
+      let payload: unknown = null
+      try {
+        payload = await res.json()
+      } catch {
+        payload = null
+      }
+      return {
+        status: res.status,
+        payload,
+        items: parseSuggestionArray(payload),
+      }
+    }
+
+    async function fetchSuggestionsOnMount() {
+      setSuggestionsLoading(true)
+      setSuggestionsError(null)
+      try {
+        console.log('[getContext] Fetching personalized web search suggestions...')
+        // Backward-compatible candidates:
+        // - "Web Search": newest backend config
+        // - "websearch": alternate key
+        // - "Amazon": older backend that only supports Amazon
+        const appCandidates = ['Web Search', 'websearch', 'Amazon']
+        let lastStatus = 0
+
+        for (const candidate of appCandidates) {
+          const { status, payload, items } = await fetchSuggestionsForApp(candidate)
+          lastStatus = status
+
+          if (status >= 200 && status < 300 && items.length > 0) {
+            if (!cancelled) {
+              console.log(
+                `[getContext] Got ${items.length} suggestions using app="${candidate}":`,
+                items
+              )
+              setSuggestions(items.slice(0, 20))
+            }
+            return
+          }
+
+          console.warn(
+            `[getContext] Suggestions request failed for app="${candidate}" (HTTP ${status})`,
+            payload
+          )
+        }
+
+        if (!cancelled) {
+          setSuggestionsError(`Could not load suggestions (HTTP ${lastStatus || 400}).`)
+        }
+      } catch (err) {
+        console.error('[getContext] Error:', err)
+        if (!cancelled) {
+          setSuggestionsError(
+            `Could not reach ${API_BASE}. Check backend is running and VITE_API_BASE is correct.`
+          )
+        }
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false)
+      }
+    }
+    fetchSuggestionsOnMount()
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     setCenterIdx(0)
     setSelectedOrigIdx(null)
   }, [results])
+
+  /**
+   * resetSuggestionHighlightOnNewSuggestions — resets highlight to the first chip.
+   *
+   * @returns void
+   */
+  useEffect(() => {
+    setHighlightedSuggestionIdx(0)
+  }, [suggestions])
 
   const isLoading = status === 'submitting' || status === 'polling'
 
@@ -420,7 +722,10 @@ export default function WebSearchPage() {
               type="text"
               placeholder="Search the web..."
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value)
+                setActiveSuggestion(null)
+              }}
               onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSearch()}
               style={{
                 flex: 1,
@@ -457,6 +762,109 @@ export default function WebSearchPage() {
             {isLoading ? 'Searching...' : 'Search'}
           </button>
         </div>
+
+        {/* Personalized suggestion chips */}
+        {suggestionsLoading && suggestions.length === 0 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              color: 'rgba(255,255,255,0.35)',
+              fontSize: 13,
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#4285F4',
+                animation: 'pulse 1.5s ease-in-out infinite',
+              }}
+            />
+            Finding personalized search ideas...
+          </div>
+        )}
+        {!suggestionsLoading && suggestions.length === 0 && suggestionsError && (
+          <div
+            style={{
+              color: 'rgba(255, 165, 165, 0.9)',
+              fontSize: 13,
+              background: 'rgba(255, 107, 107, 0.12)',
+              border: '1px solid rgba(255, 107, 107, 0.25)',
+              padding: '8px 12px',
+              borderRadius: 8,
+            }}
+          >
+            {suggestionsError}
+          </div>
+        )}
+        {suggestions.length > 0 && !(status === 'ready' && results.length > 0) && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: 12,
+              width: '100%',
+              maxWidth: 720,
+            }}
+          >
+            {suggestions.map((s, idx) => {
+              const isActive = activeSuggestion === s
+              const isHighlighted = highlightedSuggestionIdx === idx
+              return (
+                <button
+                  key={s}
+                  onClick={() => {
+                    if (!isLoading) void handleSuggestionClick(s)
+                  }}
+                  onMouseEnter={() => setHighlightedSuggestionIdx(idx)}
+                  style={{
+                    padding: '14px 20px',
+                    borderRadius: 0,
+                    border: isActive
+                      ? '2px solid #4285F4'
+                      : isHighlighted
+                        ? '2px solid rgba(255,255,255,0.45)'
+                      : '1px solid rgba(255,255,255,0.15)',
+                    background: isActive
+                      ? 'rgba(66,133,244,0.2)'
+                      : isHighlighted
+                        ? 'rgba(255,255,255,0.12)'
+                      : 'rgba(255,255,255,0.05)',
+                    color: isActive
+                      ? '#8AB4F8'
+                      : isHighlighted
+                        ? '#fff'
+                      : 'rgba(255,255,255,0.78)',
+                    fontSize: 15,
+                    fontWeight: isActive || isHighlighted ? 700 : 500,
+                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s',
+                    fontFamily: 'inherit',
+                    textAlign: 'left',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    boxShadow: isActive
+                      ? '0 0 20px rgba(66,133,244,0.25)'
+                      : isHighlighted
+                        ? '0 0 12px rgba(255,255,255,0.08)'
+                        : 'none',
+                  }}
+                >
+                  {s}
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {suggestions.length > 0 && !(status === 'ready' && results.length > 0) && (
+          <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: 12, margin: 0 }}>
+            Wink left/right to pick a suggestion, then triple blink to search
+          </p>
+        )}
 
         {/* Status / polling indicator */}
         {isLoading && (
