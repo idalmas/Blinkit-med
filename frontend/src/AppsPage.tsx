@@ -40,6 +40,8 @@ interface AppCard {
   shadow: string
   /** Subtle brand-tinted background shown on the card when highlighted. */
   tint: string
+  /** Themed background image shown (tinted) when the card is highlighted. */
+  bgImage: string
   description: string
   path?: string
 }
@@ -52,6 +54,7 @@ const apps: AppCard[] = [
     gradient: 'linear-gradient(135deg, #FF9900 0%, #FFB84D 50%, #FF9900 100%)',
     shadow: 'rgba(255, 153, 0, 0.4)',
     tint: 'rgba(255, 153, 0, 0.45)',
+    bgImage: 'https://images.unsplash.com/photo-1523474253046-8cd2748b5fd2?w=400&h=480&fit=crop',
     description: 'Search & scrape product data',
     path: '/apps/amazon',
   },
@@ -61,6 +64,7 @@ const apps: AppCard[] = [
     gradient: 'linear-gradient(135deg, #4285F4 0%, #34A853 50%, #4285F4 100%)',
     shadow: 'rgba(66, 133, 244, 0.4)',
     tint: 'rgba(66, 133, 244, 0.45)',
+    bgImage: 'https://images.unsplash.com/photo-1476973422084-e0fa66ff9456?w=400&h=480&fit=crop',
     description: 'Search places & businesses',
     path: '/apps/maps',
   },
@@ -70,6 +74,7 @@ const apps: AppCard[] = [
     gradient: 'linear-gradient(135deg, #10b981 0%, #34d399 50%, #10b981 100%)',
     shadow: 'rgba(16, 185, 129, 0.4)',
     tint: 'rgba(16, 185, 129, 0.45)',
+    bgImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400&h=480&fit=crop',
     description: 'Chat with GPT',
     path: '/apps/chat',
   },
@@ -79,6 +84,7 @@ const apps: AppCard[] = [
     gradient: 'linear-gradient(135deg, #4285F4 0%, #EA4335 33%, #FBBC05 66%, #34A853 100%)',
     shadow: 'rgba(66, 133, 244, 0.4)',
     tint: 'rgba(66, 133, 244, 0.45)',
+    bgImage: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400&h=480&fit=crop',
     description: 'Search Google SERP',
     path: '/apps/web-search',
   },
@@ -88,6 +94,7 @@ const apps: AppCard[] = [
     gradient: 'linear-gradient(135deg, #FFD600 0%, #FF6D00 50%, #FFD600 100%)',
     shadow: 'rgba(255, 214, 0, 0.4)',
     tint: 'rgba(255, 214, 0, 0.45)',
+    bgImage: 'https://images.unsplash.com/photo-1534088568595-a066f410bcda?w=400&h=480&fit=crop',
     description: 'Blink to flap & fly',
     path: '/apps/flappy-bird',
   },
@@ -97,6 +104,7 @@ const apps: AppCard[] = [
     gradient: 'linear-gradient(135deg, #D4A574 0%, #8B6914 50%, #D4A574 100%)',
     shadow: 'rgba(212, 165, 116, 0.4)',
     tint: 'rgba(212, 165, 116, 0.45)',
+    bgImage: 'https://images.unsplash.com/photo-1507842217343-583bb7270b66?w=400&h=480&fit=crop',
     description: 'Read classic literature',
     path: '/apps/books',
   },
@@ -106,6 +114,7 @@ const apps: AppCard[] = [
     gradient: 'linear-gradient(135deg, #8B5CF6 0%, #A78BFA 50%, #8B5CF6 100%)',
     shadow: 'rgba(139, 92, 246, 0.4)',
     tint: 'rgba(139, 92, 246, 0.45)',
+    bgImage: 'https://images.unsplash.com/photo-1478737270239-2f02b77fc618?w=400&h=480&fit=crop',
     description: 'Voice conversations',
     path: '/apps/talk',
   },
@@ -115,6 +124,7 @@ const apps: AppCard[] = [
     gradient: 'linear-gradient(135deg, #e74c3c 0%, #3498db 50%, #e74c3c 100%)',
     shadow: 'rgba(231, 76, 60, 0.4)',
     tint: 'rgba(231, 76, 60, 0.45)',
+    bgImage: 'https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=400&h=480&fit=crop',
     description: 'Wink to dodge trains',
     path: '/apps/subway-surfers',
   },
@@ -258,8 +268,8 @@ export default function AppsPage() {
                 animation: isHighlighted
                   ? undefined
                   : hasAnimatedIn
-                    ? `float${i} 6s ease-in-out ${i * 0.8}s infinite`
-                    : `floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.12}s both, float${i} 6s ease-in-out ${i * 0.8}s infinite`,
+                    ? undefined
+                    : `floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.12}s both`,
                 transform: isHighlighted ? 'translateY(-16px) scale(1.08)' : undefined,
                 boxShadow: isHighlighted
                   ? `0 32px 64px -16px ${app.shadow}, 0 0 40px ${app.shadow}, inset 0 1px 0 rgba(255,255,255,0.3)`
@@ -268,6 +278,38 @@ export default function AppsPage() {
                 zIndex: isHighlighted ? 10 : 1,
               }}
             >
+              {/* Background image — fades in with brand tint when highlighted */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  borderRadius: 24,
+                  overflow: 'hidden',
+                  opacity: isHighlighted ? 0.3 : 0,
+                  transition: 'opacity 0.4s ease',
+                  pointerEvents: 'none',
+                }}
+              >
+                <img
+                  src={app.bgImage}
+                  alt=""
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                  }}
+                />
+                {/* Tint overlay on top of the image */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: app.tint.replace('0.45)', '0.65)'),
+                    mixBlendMode: 'multiply',
+                  }}
+                />
+              </div>
+
               {/* Pulsing ring around highlighted card */}
               {isHighlighted && (
                 <div
@@ -299,6 +341,8 @@ export default function AppsPage() {
                     : `0 8px 32px -4px ${app.shadow}`,
                   transition: 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease',
                   transform: isHighlighted ? 'scale(1.08)' : undefined,
+                  position: 'relative',
+                  zIndex: 2,
                 }}
               >
                 {app.icon}
@@ -306,11 +350,14 @@ export default function AppsPage() {
 
               <div
                 style={{
-                  color: '#111',
+                  color: isHighlighted ? '#fff' : '#111',
                   fontSize: 17,
                   fontWeight: 600,
                   textAlign: 'center',
                   fontFamily: '"Geist", system-ui, -apple-system, sans-serif',
+                  position: 'relative',
+                  zIndex: 2,
+                  transition: 'color 0.4s ease',
                 }}
               >
                 {app.name}
