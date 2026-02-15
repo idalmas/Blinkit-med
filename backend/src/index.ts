@@ -9,6 +9,7 @@
  *   POST /upload    — upload text → embed → index into Elasticsearch
  *   POST /generate  — dialog in → kNN RAG + Cerebras → personalized response
  *   POST /long      — bulk ingest: chunk long text → embed all → bulk index
+ *   GET  /documents — browse everything stored in the vector DB (debug/demo)
  *
  * On startup:
  *   - Calls ensureIndex() to create the Elasticsearch `person-context` index
@@ -26,6 +27,7 @@ import { ensureIndex } from "./lib/elasticsearch";
 import upload from "./routes/upload";
 import generate from "./routes/generate";
 import long from "./routes/long";
+import documents from "./routes/documents";
 
 const app = new Hono();
 
@@ -49,6 +51,7 @@ app.use("/*", logger());
 app.route("/upload", upload);
 app.route("/generate", generate);
 app.route("/long", long);
+app.route("/documents", documents);
 
 /** Health check — useful for uptime monitoring. */
 app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
