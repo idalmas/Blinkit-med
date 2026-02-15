@@ -1,10 +1,39 @@
+/**
+ * AmazonSearchPage — Personalized Amazon product discovery page.
+ *
+ * On mount, calls POST /getContext to get 20 personalized Amazon search queries
+ * generated from the user's stored context (Elasticsearch kNN + Cerebras LLM).
+ * The top suggestion auto-searches immediately via BrightData, and all 20
+ * suggestions are displayed as clickable chips so the user can explore others.
+ *
+ * Users can also type their own keyword into the search bar. Products are
+ * displayed in a 3D card carousel navigable by wink-based blink detection.
+ *
+ * Data flow:
+ *   1. Page load → POST /getContext { app: "Amazon" } → 20 search queries
+ *   2. Auto-search suggestions[0] → POST /apps/amazon-search → BrightData scrape
+ *   3. Poll GET /apps/amazon-status/:id until products are ready
+ *   4. Display product cards in carousel; blink to browse, double-blink to select
+ *
+ * Key state:
+ *   - suggestions / suggestionsLoading / activeSuggestion — getContext results
+ *   - keyword / status / products — BrightData search state
+ *   - centerIdx / selectedOrigIdx — carousel navigation
+ *
+ * Parent: mounted by src/main.tsx at /apps/amazon
+ * Dependencies: useBlinkDetection, backend at localhost:3001
+ */
+
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaAmazon, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
-const API_BASE = 'http://localhost:3002'
+/** Base URL for the Hono backend (Elasticsearch + BrightData + Cerebras). */
+const API_BASE = 'http://localhost:3001'
+
+/** How often (ms) to poll BrightData for scrape completion. */
 const POLL_INTERVAL = 3000
 
 interface AmazonProduct {
@@ -67,6 +96,18 @@ export default function AmazonSearchPage() {
   const failCountRef = useRef(0)
   const MAX_POLL_FAILURES = 5
 
+  // Personalized suggestions from getContext (Elasticsearch + Cerebras)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const [activeSuggestion, setActiveSuggestion] = useState<string | null>(null)
+
+  // Index of the suggestion currently highlighted via blink navigation
+  const [highlightedSuggestionIdx, setHighlightedSuggestionIdx] = useState(0)
+  /** Ref mirror of highlightedSuggestionIdx so event handlers can read the
+   *  latest value without closure staleness or side-effects inside setState. */
+  const highlightedIdxRef = useRef(0)
+  useEffect(() => { highlightedIdxRef.current = highlightedSuggestionIdx }, [highlightedSuggestionIdx])
+
   // Search result cache (persisted in localStorage)
   const cacheRef = useRef<Map<string, AmazonProduct[]>>(new Map())
   const lastSearchKeyRef = useRef('')
@@ -125,8 +166,48 @@ export default function AmazonSearchPage() {
     }
   }, [])
 
+  /**
+   * Ref to hold the latest handleSuggestionClick so handleBlink can call it
+   * without a circular dependency.
+   */
+  const suggestionClickRef = useRef<(s: string) => void>(() => {})
+
+  /**
+   * handleBlink — dispatches blink/wink events to either the suggestion list
+   * (when suggestions are visible and no products are loaded) or the product
+   * carousel (once products are on screen).
+   *
+   * Suggestion mode:
+   *   - wink-left / wink-right → move highlight left / right
+   *   - triple blink → select highlighted suggestion (triggers search)
+   *
+   * Product carousel mode:
+   *   - wink-left / wink-right → scroll cards
+   *   - double blink → select / deselect card
+   *   - triple blink → email selected product
+   */
   const handleBlink = useCallback(
     (type: BlinkType) => {
+      const suggestionsVisible = suggestions.length > 0 && !(status === 'ready' && products.length > 0)
+
+      // ── Suggestion navigation mode ──
+      if (suggestionsVisible && products.length === 0) {
+        if (type === 'wink-right') {
+          setHighlightedSuggestionIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
+        } else if (type === 'wink-left') {
+          setHighlightedSuggestionIdx((prev) => Math.max(prev - 1, 0))
+        } else if (type === 'triple') {
+          // Read highlighted index from ref (not inside a setState updater)
+          // to avoid side-effects inside a state update.
+          const idx = highlightedIdxRef.current
+          if (idx >= 0 && idx < suggestions.length) {
+            suggestionClickRef.current(suggestions[idx])
+          }
+        }
+        return
+      }
+
+      // ── Product carousel mode ──
       if (products.length === 0) return
       if (type === 'double') {
         setSelectedOrigIdx((prev) => (prev === centerIdx ? null : centerIdx))
@@ -138,7 +219,7 @@ export default function AmazonSearchPage() {
         setCenterIdx((prev) => (prev + 1) % products.length)
       }
     },
-    [centerIdx, products, selectedOrigIdx, sendProductEmail]
+    [centerIdx, products, selectedOrigIdx, sendProductEmail, suggestions, status]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
@@ -267,6 +348,96 @@ export default function AmazonSearchPage() {
     }
   }
 
+  // ── Fetch personalized suggestions from getContext on mount ──
+  useEffect(() => {
+    let cancelled = false
+    async function fetchSuggestions() {
+      setSuggestionsLoading(true)
+      try {
+        console.log('[getContext] Fetching personalized suggestions...')
+        const res = await fetch(`${API_BASE}/getContext`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app: 'Amazon', k: 10 }),
+        })
+        if (!res.ok) {
+          console.warn('[getContext] Non-OK response:', res.status)
+          return
+        }
+        const data = await res.json()
+        const items: string[] = Array.isArray(data.result)
+          ? data.result.filter((s: unknown) => typeof s === 'string' && (s as string).trim().length > 0)
+          : []
+        if (!cancelled && items.length > 0) {
+          console.log(`[getContext] Got ${items.length} suggestions:`, items)
+          setSuggestions(items)
+        }
+      } catch (err) {
+        console.error('[getContext] Error:', err)
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false)
+      }
+    }
+    fetchSuggestions()
+    return () => { cancelled = true }
+  }, [])
+
+  // No auto-search — user must navigate suggestions with winks and
+  // triple-blink to confirm before any search is triggered.
+
+  /**
+   * handleSuggestionClick — triggered when the user clicks a suggestion chip.
+   * Sets the keyword, marks the chip as active, and kicks off a BrightData search.
+   */
+  const handleSuggestionClick = useCallback((suggestion: string) => {
+    setKeyword(suggestion)
+    setActiveSuggestion(suggestion)
+    // Inline the search logic so we use the clicked suggestion directly
+    ;(async () => {
+      const cacheKey = suggestion.trim().toLowerCase()
+      const cached = cacheRef.current.get(cacheKey)
+      if (cached && cached.length > 0) {
+        setProducts(cached)
+        setStatus('ready')
+        setErrorMsg('')
+        return
+      }
+      lastSearchKeyRef.current = cacheKey
+      stopPolling()
+      setProducts([])
+      setErrorMsg('')
+      setStatus('submitting')
+      try {
+        const res = await fetch(`${API_BASE}/apps/amazon-search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keyword: suggestion.trim(), limit }),
+        })
+        const data = await res.json()
+        if (!res.ok && res.status !== 202) {
+          setErrorMsg(data.error || 'Request failed.')
+          setStatus('error')
+          return
+        }
+        if (data.snapshot_id) {
+          setSnapshotId(data.snapshot_id)
+          pollForResults(data.snapshot_id)
+        } else {
+          setErrorMsg('No snapshot_id returned.')
+          setStatus('error')
+        }
+      } catch {
+        setErrorMsg('Failed to start search.')
+        setStatus('error')
+      }
+    })()
+  }, [limit, stopPolling, pollForResults])
+
+  // Keep the ref in sync so handleBlink can call the latest version
+  useEffect(() => {
+    suggestionClickRef.current = handleSuggestionClick
+  }, [handleSuggestionClick])
+
   // Reset centerIdx when products change (new search)
   useEffect(() => {
     setCenterIdx(0)
@@ -290,12 +461,13 @@ export default function AmazonSearchPage() {
       {/* Header */}
       <div
         style={{
-          padding: '72px 32px 0',
+          padding: '72px 32px 20px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           gap: 20,
-          flexShrink: 0,
+          overflowY: 'auto',
+          scrollbarWidth: 'none',
         }}
       >
         <button
@@ -432,6 +604,117 @@ export default function AmazonSearchPage() {
             {isLoading ? 'Searching...' : 'Search'}
           </button>
         </div>
+
+        {/* Personalized suggestion chips */}
+        {suggestionsLoading && suggestions.length === 0 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              color: 'rgba(255,255,255,0.35)',
+              fontSize: 13,
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#FF9900',
+                animation: 'pulse 1.5s ease-in-out infinite',
+              }}
+            />
+            Finding personalized suggestions...
+          </div>
+        )}
+        {/* Horizontal suggestion list — hidden once results are showing */}
+        {suggestions.length > 0 && !(status === 'ready' && products.length > 0) && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: 12,
+              width: '100%',
+              maxWidth: 720,
+            }}
+          >
+            {suggestions.map((s, idx) => {
+              const isActive = activeSuggestion === s
+              const isHighlighted = highlightedSuggestionIdx === idx
+              const isSearching = isActive && isLoading
+              return (
+                <button
+                  key={s}
+                  onClick={() => {
+                    if (!isLoading) {
+                      setHighlightedSuggestionIdx(idx)
+                      handleSuggestionClick(s)
+                    }
+                  }}
+                  onMouseEnter={() => setHighlightedSuggestionIdx(idx)}
+                  style={{
+                    padding: '14px 20px',
+                    borderRadius: 0,
+                    border: isActive
+                      ? '2px solid #FF9900'
+                      : isHighlighted
+                        ? '2px solid rgba(255,255,255,0.4)'
+                        : '1px solid rgba(255,255,255,0.15)',
+                    background: isActive
+                      ? 'rgba(255,153,0,0.2)'
+                      : isHighlighted
+                        ? 'rgba(255,255,255,0.12)'
+                        : 'rgba(255,255,255,0.05)',
+                    color: isActive
+                      ? '#FF9900'
+                      : isHighlighted
+                        ? '#fff'
+                        : 'rgba(255,255,255,0.75)',
+                    fontSize: 16,
+                    fontWeight: isActive || isHighlighted ? 700 : 500,
+                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s',
+                    fontFamily: 'inherit',
+                    textAlign: 'left',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    boxShadow: isActive
+                      ? '0 0 20px rgba(255,153,0,0.25)'
+                      : isHighlighted
+                        ? '0 0 12px rgba(255,255,255,0.08)'
+                        : 'none',
+                  }}
+                >
+                  {isSearching ? (
+                    <>
+                      <div
+                        style={{
+                          display: 'inline-block',
+                          width: 13,
+                          height: 13,
+                          marginRight: 12,
+                          verticalAlign: -2,
+                          border: '2px solid rgba(255,153,0,0.3)',
+                          borderTop: '2px solid #FF9900',
+                          borderRadius: '50%',
+                          animation: 'spin 0.8s linear infinite',
+                        }}
+                      />
+                      Searching...
+                    </>
+                  ) : (
+                    <>
+                      <FaSearch size={13} style={{ marginRight: 12, opacity: isHighlighted ? 0.8 : 0.5, verticalAlign: -1 }} />
+                      {s}
+                    </>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {/* Status indicator */}
         {isLoading && (
@@ -768,6 +1051,10 @@ export default function AmazonSearchPage() {
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
         div::-webkit-scrollbar {
           display: none;
