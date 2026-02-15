@@ -1,7 +1,7 @@
-# Backend Context: Revive RAG & App Services
+# Backend Context: Blinket RAG & App Services
 
 ## Overview
-The Revive backend is a high-performance TypeScript service built on **Bun** and the **Hono** web framework. It serves as the central intelligence hub for the Revive ecosystem, providing Retrieval-Augmented Generation (RAG) capabilities, specialized app integrations, and real-time communication support.
+The Blinket backend is a high-performance TypeScript service built on **Bun** and the **Hono** web framework. It serves as the central intelligence hub for the Blinket ecosystem, providing Retrieval-Augmented Generation (RAG) capabilities, specialized app integrations, and real-time communication support.
 
 ## Core Architecture
 - **Runtime**: [Bun](https://bun.sh/)

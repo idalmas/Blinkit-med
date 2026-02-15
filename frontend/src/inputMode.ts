@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 
 export type InputMode = 'blink' | 'eog'
 
-const STORAGE_KEY = 'revive-input-mode'
-const EVENT_NAME = 'revive-input-mode-change'
+const STORAGE_KEY = 'blinket-input-mode'
+const EVENT_NAME = 'blinket-input-mode-change'
 
 export function getInputMode(): InputMode {
   if (typeof window === 'undefined') return 'blink'
