@@ -5,8 +5,10 @@
  * and exports the app for Bun to serve.
  *
  * Routes:
- *   POST /upload    — upload transcript text → embed → store in pgvector
- *   POST /generate  — dialog in → RAG + Cerebras → two response options out
+ *   POST /upload              — upload transcript text → embed → store in pgvector
+ *   POST /generate            — dialog in → RAG + Cerebras → two response options out
+ *   POST /apps/amazon-search           — keyword → BrightData Amazon scraper → kicks off scrape
+ *   GET  /apps/amazon-status/:id       — poll scrape progress → returns data when ready
  *
  * Run with:
  *   bun run dev      (hot-reload)
@@ -18,6 +20,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import upload from "./routes/upload";
 import generate from "./routes/generate";
+import apps from "./routes/apps";
 
 const app = new Hono();
 
@@ -40,6 +43,7 @@ app.use("/*", logger());
 
 app.route("/upload", upload);
 app.route("/generate", generate);
+app.route("/apps", apps);
 
 /** Health check — useful for uptime monitoring. */
 app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
