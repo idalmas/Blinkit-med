@@ -20,10 +20,10 @@ import { API_BASE } from './config';
  * toWebSocketUrl — convert HTTP(S) API base URL to WS(S) URL for realtime streams.
  *
  * Inputs:
- * - apiBase: Backend base URL from env (e.g. http://localhost:3001).
+ * - apiBase: Backend base URL from env (e.g. http://localhost:3003).
  *
  * Outputs:
- * - string: WebSocket base URL (e.g. ws://localhost:3001).
+ * - string: WebSocket base URL (e.g. ws://localhost:3003).
  */
 function toWebSocketUrl(apiBase: string): string {
   try {
