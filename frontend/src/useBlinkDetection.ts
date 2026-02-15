@@ -26,7 +26,7 @@ const LONG_CLOSE_GRACE_MS = 300     // allow eyes to flicker open briefly withou
 const LONG_CLOSE_MIN_EYE_SCORE = 0.34 // require each eye to be individually closed
 const LONG_CLOSE_MAX_EYE_DIFF = 0.1   // reject asymmetric closes (often winks/noise)
 
-export type BlinkType = 'single' | 'double' | 'triple' | 'wink-left' | 'wink-right' | 'long-close'
+export type BlinkType = 'single' | 'double' | 'triple' | 'quadruple' | 'wink-left' | 'wink-right' | 'long-close'
 
 interface UseBlinkDetectionOptions {
   onBlink?: (type: BlinkType, count: number) => void
@@ -63,7 +63,11 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'detecting' | 'error'>('loading')
 
   const commitBlinks = useCallback((count: number) => {
-    const type: BlinkType = count >= 3 ? 'triple' : count === 2 ? 'double' : 'single'
+    const type: BlinkType =
+      count >= 4 ? 'quadruple' :
+      count === 3 ? 'triple' :
+      count === 2 ? 'double' :
+      'single'
     onBlinkRef.current?.(type, count)
   }, [])
 
@@ -75,7 +79,7 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
     }
 
     const currentCount = blinkAccumulatorRef.current
-    if (currentCount >= 3) {
+    if (currentCount >= 4) {
       blinkAccumulatorRef.current = 0
       commitBlinks(currentCount)
       return
