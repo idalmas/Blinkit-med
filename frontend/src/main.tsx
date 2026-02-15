@@ -1,6 +1,13 @@
+/**
+ * main.tsx — Application entry point for Revive frontend.
+ *
+ * Sets up React root, React Router, global CSS, and the shared Navbar.
+ * All page components are registered here as routes.
+ */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import './styles.css'
 import App from './App.tsx'
 import AppsPage from './AppsPage.tsx'
 import AmazonSearchPage from './AmazonSearchPage.tsx'
