@@ -30,10 +30,7 @@ import Webcam from 'react-webcam'
 import { FaAmazon, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
-/** Base URL for the Hono backend (Elasticsearch + BrightData + Cerebras). */
-const API_BASE = 'http://localhost:3001'
-
-/** How often (ms) to poll BrightData for scrape completion. */
+const API_BASE = 'http://localhost:3003'
 const POLL_INTERVAL = 3000
 
 interface AmazonProduct {
@@ -188,6 +185,10 @@ export default function AmazonSearchPage() {
    */
   const handleBlink = useCallback(
     (type: BlinkType) => {
+      if (type === 'long-close') {
+        navigate('/apps')
+        return
+      }
       const suggestionsVisible = suggestions.length > 0 && !(status === 'ready' && products.length > 0)
 
       // ── Suggestion navigation mode ──

@@ -1,6 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { FaAmazon, FaAirbnb } from 'react-icons/fa'
-import { SiOpenai } from 'react-icons/si'
+import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook } from 'react-icons/fa'
 
 interface AppCard {
   name: string
@@ -21,18 +20,44 @@ const apps: AppCard[] = [
     path: '/apps/amazon',
   },
   {
-    name: 'ChatGPT',
-    icon: <SiOpenai size={48} />,
-    gradient: 'linear-gradient(135deg, #10A37F 0%, #1ED9A4 50%, #10A37F 100%)',
-    shadow: 'rgba(16, 163, 127, 0.4)',
-    description: 'AI-powered conversations',
+    name: 'Google Maps',
+    icon: <FaMapMarkerAlt size={48} />,
+    gradient: 'linear-gradient(135deg, #4285F4 0%, #34A853 50%, #4285F4 100%)',
+    shadow: 'rgba(66, 133, 244, 0.4)',
+    description: 'Search places & businesses',
+    path: '/apps/maps',
   },
   {
-    name: 'Airbnb',
-    icon: <FaAirbnb size={48} />,
-    gradient: 'linear-gradient(135deg, #FF5A5F 0%, #FF8C8F 50%, #FF5A5F 100%)',
-    shadow: 'rgba(255, 90, 95, 0.4)',
-    description: 'Listings & travel data',
+    name: 'ChatGPT',
+    icon: <FaComments size={48} />,
+    gradient: 'linear-gradient(135deg, #10b981 0%, #34d399 50%, #10b981 100%)',
+    shadow: 'rgba(16, 185, 129, 0.4)',
+    description: 'Chat with GPT',
+    path: '/apps/chat',
+  },
+  {
+    name: 'Web Search',
+    icon: <FaSearch size={48} />,
+    gradient: 'linear-gradient(135deg, #4285F4 0%, #EA4335 33%, #FBBC05 66%, #34A853 100%)',
+    shadow: 'rgba(66, 133, 244, 0.4)',
+    description: 'Search Google SERP',
+    path: '/apps/web-search',
+  },
+  {
+    name: 'Flappy Bird',
+    icon: <FaDove size={48} />,
+    gradient: 'linear-gradient(135deg, #FFD600 0%, #FF6D00 50%, #FFD600 100%)',
+    shadow: 'rgba(255, 214, 0, 0.4)',
+    description: 'Blink to flap & fly',
+    path: '/apps/flappy-bird',
+  },
+  {
+    name: 'Books',
+    icon: <FaBook size={48} />,
+    gradient: 'linear-gradient(135deg, #D4A574 0%, #8B6914 50%, #D4A574 100%)',
+    shadow: 'rgba(212, 165, 116, 0.4)',
+    description: 'Read classic literature',
+    path: '/apps/books',
   },
 ]
 
@@ -195,12 +220,27 @@ export default function AppsPage() {
 
         @keyframes float1 {
           0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-14px); }
+          50% { transform: translateY(-8px); }
         }
 
         @keyframes float2 {
           0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-8px); }
+          50% { transform: translateY(-12px); }
+        }
+
+        @keyframes float3 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-9px); }
+        }
+
+        @keyframes float4 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-11px); }
+        }
+
+        @keyframes float5 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-10px); }
         }
 
         .app-card:hover {

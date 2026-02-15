@@ -18,7 +18,10 @@ const EMA_ALPHA = 0.5            // smoothing factor (higher = more responsive)
 const MIN_WINK_FRAMES = 2        // require 2+ consecutive frames for stability
 const WINK_COOLDOWN_MS = 500     // cooldown between wink events
 
-export type BlinkType = 'single' | 'double' | 'triple' | 'wink-left' | 'wink-right'
+// Long-close detection — both eyes closed for 3 seconds
+const LONG_CLOSE_MS = 3000
+
+export type BlinkType = 'single' | 'double' | 'triple' | 'wink-left' | 'wink-right' | 'long-close'
 
 interface UseBlinkDetectionOptions {
   onBlink?: (type: BlinkType, count: number) => void
@@ -46,6 +49,10 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
   // EMA-smoothed eye scores for wink detection
   const smoothLeftRef = useRef(0)
   const smoothRightRef = useRef(0)
+
+  // Long-close tracking
+  const eyesClosedSinceRef = useRef<number | null>(null)
+  const longCloseFiredRef = useRef(false)
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'detecting' | 'error'>('loading')
 
@@ -146,6 +153,20 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
             closedFrameCountRef.current = 0
           }
           wasBlinkingRef.current = isClosed
+
+          // Long-close detection (both eyes shut for 3+ seconds)
+          if (isClosed) {
+            if (eyesClosedSinceRef.current === null) {
+              eyesClosedSinceRef.current = now
+              longCloseFiredRef.current = false
+            } else if (!longCloseFiredRef.current && (now - eyesClosedSinceRef.current) >= LONG_CLOSE_MS) {
+              longCloseFiredRef.current = true
+              onBlinkRef.current?.('long-close', 1)
+            }
+          } else {
+            eyesClosedSinceRef.current = null
+            longCloseFiredRef.current = false
+          }
 
           // Wink detection with EMA smoothing + relative difference
           smoothLeftRef.current = EMA_ALPHA * leftScore + (1 - EMA_ALPHA) * smoothLeftRef.current
