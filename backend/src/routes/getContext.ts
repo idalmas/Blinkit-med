@@ -458,15 +458,6 @@ getContext.post("/", async (c) => {
     const systemPrompt = config.buildPrompt(context, text);
 
     const userMessage = config.buildUserMessage(text);
-    let userMessage: string;
-    if (appKey === "talk") {
-      userMessage =
-        "Generate conversational response options based on the transcript.";
-    } else {
-      userMessage = text
-        ? `Generate product ideas focused on: ${text}`
-        : "Generate product ideas based on my context.";
-    }
 
     const dialog: DialogMessage[] = [{ role: "user", content: userMessage }];
 

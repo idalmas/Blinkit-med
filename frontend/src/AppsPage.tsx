@@ -23,9 +23,8 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
-import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook } from 'react-icons/fa'
-import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 /** Describes a single app card in the launcher grid. */
 interface AppCard {
