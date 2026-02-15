@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Webcam from 'react-webcam'
 import { FaMapMarkerAlt, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch, FaPhone, FaGlobe } from 'react-icons/fa'
 
 const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import { API_BASE, PERSON } from './config'
 const POLL_INTERVAL = 3000
 
 interface MapsPlace {
@@ -68,6 +71,7 @@ function normalizePlaces(raw: unknown): MapsPlace[] {
 
 export default function MapsPage() {
   const navigate = useNavigate()
+
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<SearchStatus>('idle')
   const [places, setPlaces] = useState<MapsPlace[]>([])
@@ -75,6 +79,68 @@ export default function MapsPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const failCountRef = useRef(0)
   const MAX_POLL_FAILURES = 5
+
+  // Suggestion state
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const [highlightedIdx, setHighlightedIdx] = useState(0)
+  const highlightedIdxRef = useRef(0)
+  const handleSearchRef = useRef<() => void>(() => {})
+  const suggestionClickRef = useRef<(s: string) => void>(() => {})
+
+  // Keep ref in sync
+  useEffect(() => { highlightedIdxRef.current = highlightedIdx }, [highlightedIdx])
+
+  const handleBlink = useCallback(
+    (type: BlinkType) => {
+      if (type === 'long-close' || type === 'triple') {
+        if (places.length > 0) {
+          // Go back to suggestions
+          setPlaces([])
+          setStatus('idle')
+          setQuery('')
+          return
+        }
+        navigate('/apps')
+        return
+      }
+
+      // Suggestion navigation mode (when suggestions visible and no places shown)
+      if (suggestions.length > 0 && places.length === 0 && status === 'idle') {
+        if (type === 'wink-right') {
+          setHighlightedIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
+        } else if (type === 'wink-left') {
+          setHighlightedIdx((prev) => Math.max(prev - 1, 0))
+        } else if (type === 'double') {
+          const idx = highlightedIdxRef.current
+          if (idx >= 0 && idx < suggestions.length) {
+            suggestionClickRef.current(suggestions[idx])
+          }
+        }
+        return
+      }
+
+      // Carousel navigation (when places are shown)
+      if (places.length > 0) {
+        if (type === 'wink-left') {
+          setCenterIdx((prev) => ((prev - 1) % places.length + places.length) % places.length)
+        } else if (type === 'wink-right') {
+          setCenterIdx((prev) => (prev + 1) % places.length)
+        } else if (type === 'double') {
+          handleSearchRef.current()
+        }
+        return
+      }
+
+      // Fallback: double-blink to search when typing
+      if (type === 'double') {
+        handleSearchRef.current()
+      }
+    },
+    [navigate, suggestions, places, status]
+  )
+
+  const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
 
   // Cache
   const cacheRef = useRef<Map<string, MapsPlace[]>>(new Map())
@@ -100,6 +166,55 @@ export default function MapsPage() {
       localStorage.setItem('revive-maps-cache', JSON.stringify([...cacheRef.current.entries()]))
     } catch { /* storage full */ }
   }, [])
+
+  // Fetch getContext suggestions on mount (with geolocation)
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchSuggestions() {
+      // Try to get user's current location
+      let locationText: string | undefined
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+        })
+        locationText = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`
+      } catch {
+        // Location unavailable — proceed without it
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/getContext`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app: 'maps', person: PERSON, k: 5, ...(locationText ? { text: locationText } : {}) }),
+        })
+        if (!res.ok) throw new Error('Failed')
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data.result)) {
+          setSuggestions(data.result)
+        }
+      } catch {
+        // Silently fail
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false)
+      }
+    }
+
+    fetchSuggestions()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleSuggestionClick = useCallback((suggestion: string) => {
+    setQuery(suggestion)
+    // Auto-search after state update
+    setTimeout(() => {
+      handleSearchRef.current()
+    }, 0)
+  }, [])
+
+  // Keep ref in sync
+  suggestionClickRef.current = handleSuggestionClick
 
   // Carousel state
   const [centerIdx, setCenterIdx] = useState(0)
@@ -205,6 +320,9 @@ export default function MapsPage() {
       setStatus('error')
     }
   }
+
+  // Keep ref in sync so blink handler can call latest version
+  handleSearchRef.current = handleSearch
 
   useEffect(() => {
     setCenterIdx(0)
@@ -666,7 +784,69 @@ export default function MapsPage() {
             }}
           >
             <FaMapMarkerAlt size={48} />
-            <p style={{ fontSize: 16, margin: 0 }}>Search for places on Google Maps</p>
+            <p style={{ fontSize: 16, margin: 0 }}>
+              {suggestionsLoading ? 'Loading personalized suggestions...' : 'Pick a suggestion or search for a place'}
+            </p>
+
+            {/* Suggestion chips */}
+            {suggestions.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  justifyContent: 'center',
+                  maxWidth: 700,
+                  marginTop: 8,
+                }}
+              >
+                {suggestions.map((s, i) => {
+                  const isHighlighted = i === highlightedIdx
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => handleSuggestionClick(s)}
+                      style={{
+                        background: isHighlighted ? 'rgba(66, 133, 244, 0.2)' : 'rgba(255,255,255,0.06)',
+                        border: isHighlighted
+                          ? '1px solid rgba(66, 133, 244, 0.5)'
+                          : '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 12,
+                        color: isHighlighted ? '#fff' : 'rgba(255,255,255,0.7)',
+                        padding: '10px 16px',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        fontFamily: 'inherit',
+                        maxWidth: 300,
+                        textAlign: 'left',
+                        lineHeight: 1.4,
+                        boxShadow: isHighlighted ? '0 0 12px rgba(66, 133, 244, 0.3)' : 'none',
+                        transform: isHighlighted ? 'scale(1.05)' : 'scale(1)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(66, 133, 244, 0.15)'
+                        e.currentTarget.style.borderColor = 'rgba(66, 133, 244, 0.4)'
+                        e.currentTarget.style.color = '#fff'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isHighlighted) {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                          e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(66, 133, 244, 0.2)'
+                          e.currentTarget.style.borderColor = 'rgba(66, 133, 244, 0.5)'
+                          e.currentTarget.style.color = '#fff'
+                        }
+                      }}
+                    >
+                      {s}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -745,6 +925,48 @@ export default function MapsPage() {
           {centerIdx + 1} / {places.length}
         </div>
       )}
+
+      {/* Webcam preview */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 20,
+          right: 20,
+          width: 160,
+          height: 120,
+          borderRadius: 12,
+          overflow: 'hidden',
+          border: '2px solid rgba(255,255,255,0.15)',
+          zIndex: 10,
+        }}
+      >
+        <Webcam
+          ref={webcamRef}
+          audio={false}
+          videoConstraints={{ facingMode: 'user', width: 640, height: 480 }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          mirrored
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 4,
+            left: 4,
+            fontSize: 10,
+            color: blinkStatus === 'detecting' ? '#4ade80' : 'rgba(255,255,255,0.5)',
+            background: 'rgba(0,0,0,0.6)',
+            padding: '2px 6px',
+            borderRadius: 4,
+          }}
+        >
+          {blinkStatus === 'loading' ? 'Loading...' : blinkStatus === 'detecting' ? 'Blink active' : blinkStatus}
+        </div>
+      </div>
+
+      {/* Help text */}
+      <p style={{ position: 'fixed', bottom: 8, left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.2)', fontSize: 11, zIndex: 10, margin: 0, whiteSpace: 'nowrap' }}>
+        Wink to navigate &middot; Double-blink to select &middot; Triple-blink to go back
+      </p>
 
       <style>{`
         @keyframes pulse {

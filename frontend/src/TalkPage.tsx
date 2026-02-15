@@ -8,6 +8,7 @@ import { DiarizationPanel } from './DiarizationPanel'
 import type { Utterance } from './types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
+import { API_BASE, PERSON } from './config'
 
 type TalkState =
   | 'IDLE'
@@ -76,6 +77,7 @@ export default function TalkPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             app: 'Talk',
+            person: PERSON,
             text: JSON.stringify({
               transcript,
               selectedSpeaker: speakerNum,
@@ -154,7 +156,11 @@ export default function TalkPage() {
 
       switch (talkState) {
         case 'IDLE':
-          if (type === 'double' || type === 'triple') {
+          if (type === 'triple') {
+            navigate('/apps')
+            return
+          }
+          if (type === 'double') {
             if (utterances.length === 0) {
               setError('No conversation detected yet.')
               setTimeout(() => setError(null), 2000)
@@ -401,7 +407,7 @@ export default function TalkPage() {
                 marginBottom: 8,
               }}
             >
-              Wink to browse &middot; Double-blink to speak &middot; Triple to cancel
+              Wink to browse &middot; Double-blink to speak &middot; Triple-blink to go back
             </div>
 
             {options.map((opt, i) => {
@@ -524,7 +530,7 @@ export default function TalkPage() {
               "{options[optionIdx]}"
             </div>
             <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
-              Triple-blink to stop
+              Triple-blink to go back
             </div>
           </div>
         )}
@@ -554,8 +560,8 @@ export default function TalkPage() {
           >
             <h2 style={{ color: '#fff', fontSize: 28, fontWeight: 700 }}>Who do you want to respond to?</h2>
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>
-              Wink left for Speaker 1 &middot; Wink right for Speaker 2 &middot; Triple-blink to
-              cancel
+              Wink left for Speaker 1 &middot; Wink right for Speaker 2 &middot; Triple-blink to go
+              back
             </p>
             <div style={{ display: 'flex', gap: 32 }}>
               {Array.from({ length: Math.min(speakers, 2) }, (_, speakerNum) => {

@@ -21,7 +21,7 @@
  *   - centerIdx / selectedOrigIdx — carousel navigation
  *
  * Parent: mounted by src/main.tsx at /apps/amazon
- * Dependencies: useBlinkDetection, backend at localhost:3001
+ * Dependencies: useBlinkDetection, backend (see config.ts for API_BASE)
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -29,29 +29,7 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaAmazon, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
-
-/** Base URL for the Hono backend (Elasticsearch + BrightData + Cerebras). */
-const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
-const FALLBACK_AMAZON_SUGGESTIONS = [
-  'cozy cabin decor',
-  'cast iron cookware set',
-  'gardening tools kit',
-  'warm winter blanket',
-  'outdoor lantern rechargeable',
-  'handmade leather journal',
-  'camping cookware mess kit',
-  'durable rain jacket',
-  'pet grooming brush',
-  'wood carving starter kit',
-]
-
-/**
- * PERSON — the persona whose Elasticsearch context is used for personalisation.
- *
- * Set via the VITE_PERSON env var in frontend/.env (e.g. VITE_PERSON=hagrid).
- * Defaults to "ian" when unset.
- */
-const PERSON = (import.meta.env.VITE_PERSON ?? 'ian').trim().toLowerCase()
+import { API_BASE, PERSON } from './config'
 
 /** How often (ms) to poll BrightData for scrape completion. */
 const POLL_INTERVAL = 3000
@@ -237,12 +215,12 @@ export default function AmazonSearchPage() {
    *
    * Suggestion mode:
    *   - wink-left / wink-right → move highlight left / right
-   *   - triple blink → select highlighted suggestion (triggers search)
+   *   - double blink → select highlighted suggestion (triggers search)
    *
    * Product carousel mode:
    *   - wink-left / wink-right → scroll cards
-   *   - double blink → select / deselect card
-   *   - triple blink → email selected product
+   *   - double blink → email current product
+   *   - triple blink → go back (clear products, return to search)
    */
   const handleBlink = useCallback(
     (type: BlinkType) => {
@@ -258,9 +236,7 @@ export default function AmazonSearchPage() {
           setHighlightedSuggestionIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
         } else if (type === 'wink-left') {
           setHighlightedSuggestionIdx((prev) => Math.max(prev - 1, 0))
-        } else if (type === 'triple') {
-          // Read highlighted index from ref (not inside a setState updater)
-          // to avoid side-effects inside a state update.
+        } else if (type === 'double') {
           const idx = highlightedIdxRef.current
           if (idx >= 0 && idx < suggestions.length) {
             suggestionClickRef.current(suggestions[idx])
@@ -270,18 +246,26 @@ export default function AmazonSearchPage() {
       }
 
       // ── Product carousel mode ──
-      if (products.length === 0) return
+      if (products.length === 0) {
+        if (type === 'triple') {
+          navigate('/apps')
+        }
+        return
+      }
       if (type === 'double') {
-        setSelectedOrigIdx((prev) => (prev === centerIdx ? null : centerIdx))
-      } else if (type === 'triple' && selectedOrigIdx !== null) {
-        sendProductEmail(products[selectedOrigIdx])
+        sendProductEmail(products[centerIdx])
+      } else if (type === 'triple') {
+        setProducts([])
+        setSelectedOrigIdx(null)
+        setCenterIdx(0)
+        setStatus('idle')
       } else if (type === 'wink-left') {
         setCenterIdx((prev) => ((prev - 1) + products.length) % products.length)
       } else if (type === 'wink-right') {
         setCenterIdx((prev) => (prev + 1) % products.length)
       }
     },
-    [centerIdx, products, selectedOrigIdx, sendProductEmail, suggestions, status]
+    [centerIdx, products, sendProductEmail, suggestions, status]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
@@ -486,7 +470,7 @@ export default function AmazonSearchPage() {
   }, [suggestionsLoading, suggestions, status, products.length, handleSuggestionClick])
 
   // No auto-search — user must navigate suggestions with winks and
-  // triple-blink to confirm before any search is triggered.
+  // double-blink to confirm before any search is triggered.
 
   /**
    * handleSuggestionClick — triggered when the user clicks a suggestion chip.
@@ -874,7 +858,7 @@ export default function AmazonSearchPage() {
 
         {status === 'ready' && products.length > 0 && (
           <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, margin: 0 }}>
-            {products.length} products found — wink to browse
+            {products.length} products found — wink to browse, double-blink to email
           </p>
         )}
       </div>

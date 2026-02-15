@@ -1,7 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import App from './App.tsx'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppsPage from './AppsPage.tsx'
 import AmazonSearchPage from './AmazonSearchPage.tsx'
 import MapsPage from './MapsPage.tsx'
@@ -10,14 +9,12 @@ import WebSearchPage from './WebSearchPage.tsx'
 import FlappyBirdPage from './FlappyBirdPage.tsx'
 import BooksPage from './BooksPage.tsx'
 import TalkPage from './TalkPage.tsx'
-import Navbar from './Navbar.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <Navbar />
       <Routes>
-        <Route path="/" element={<App />} />
+        <Route path="/" element={<Navigate to="/apps" replace />} />
         <Route path="/apps" element={<AppsPage />} />
         <Route path="/apps/amazon" element={<AmazonSearchPage />} />
         <Route path="/apps/maps" element={<MapsPage />} />

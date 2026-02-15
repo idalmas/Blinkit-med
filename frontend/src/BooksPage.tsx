@@ -151,10 +151,14 @@ export default function BooksPage() {
           flipForward()
         } else if (type === 'wink-left') {
           flipBack()
-        } else if (type === 'double') {
+        } else if (type === 'triple') {
           closeBook()
         }
       } else {
+        if (type === 'triple') {
+          navigate('/apps')
+          return
+        }
         if (books.length === 0) return
         if (type === 'wink-left') {
           setCenterIdx((p) => ((p - 1) + books.length) % books.length)
@@ -272,6 +276,7 @@ export default function BooksPage() {
             {books.length} classics — wink to browse, double-blink to read
           </p>
         )}
+
       </div>
 
       {/* Carousel */}
@@ -484,7 +489,7 @@ export default function BooksPage() {
               Ch. {currentChapter + 1}/{totalChapters}
             </span>
             <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>
-              Wink: flip | Double: close
+              Wink: flip | Triple: close
             </span>
             <button
               onClick={closeBook}
