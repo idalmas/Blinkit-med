@@ -6,7 +6,7 @@ export default function GlobalEogPanel() {
       style={{
         position: 'fixed',
         bottom: 20,
-        left: 20,
+        right: 20,
         width: 160,
         height: 120,
         borderRadius: 12,

@@ -56,148 +56,132 @@ interface SignalInput {
 }
 
 interface ProcessedSignal extends SignalInput {
-  movingAvg: number;
-  lowerBound: number;
-  upperBound: number;
-  convScore: number;
-  convThreshold: number;
+  yMin: number;
+  yMax: number;
+  leftLimit: number;
+  rightLimit: number;
+  noiseThreshold: number;
   direction: Direction;
-  calibrated: boolean;
-  calibrationRemainingMs: number;
+  eogConfig: EogConfig;
+}
+
+interface EogConfig {
+  yMin: number;
+  yMax: number;
+  leftLimit: number;
+  rightLimit: number;
+  releaseMargin: number;
+  noiseThreshold: number;
+  holdMs: number;
 }
 
 class EogProcessor {
-  private readonly calibrationMs = 15_000;
-  private readonly kernel = [-1, -0.5, 0, 0.5, 1];
-  private readonly refractoryMs = 180;
-  private readonly directionHoldMs = 160;
-  private readonly minConvThreshold = 12;
-  private readonly minMargin = 35;
+  private config: EogConfig = {
+    yMin: 1750,
+    yMax: 2250,
+    leftLimit: 2030,
+    rightLimit: 1880,
+    releaseMargin: 12,
+    noiseThreshold: 250,
+    holdMs: 300,
+  };
 
-  private startedAt = 0;
-  private lastSampleAt = 0;
-  private isCalibrated = false;
-
-  private movingAvg = 0;
-  private noiseEma = 0;
-  private convNoiseEma = 0;
-  private detrendedWindow: number[] = [];
-  private calibrationValues: number[] = [];
-
-  private calibratedStd = 18;
-  private calibratedMean = 0;
-
-  private lastEventAt = 0;
-  private holdUntil = 0;
   private direction: Direction = 0;
-  private readyForNextEvent = true;
+  private holdUntilMs = 0;
 
-  reset(nowMs: number) {
-    this.startedAt = nowMs;
-    this.lastSampleAt = nowMs;
-    this.isCalibrated = false;
-    this.movingAvg = 0;
-    this.noiseEma = 0;
-    this.convNoiseEma = 0;
-    this.detrendedWindow = [];
-    this.calibrationValues = [];
-    this.calibratedStd = 18;
-    this.calibratedMean = 0;
-    this.lastEventAt = 0;
-    this.holdUntil = 0;
-    this.direction = 0;
-    this.readyForNextEvent = true;
+  updateConfig(partial: Partial<EogConfig>) {
+    const next: EogConfig = { ...this.config, ...partial };
+    next.yMin = Number(next.yMin);
+    next.yMax = Number(next.yMax);
+    if (next.yMax <= next.yMin + 10) next.yMax = next.yMin + 10;
+    next.leftLimit = Number(next.leftLimit);
+    next.rightLimit = Number(next.rightLimit);
+    if (next.leftLimit <= next.rightLimit + 5) next.leftLimit = next.rightLimit + 5;
+    next.releaseMargin = Math.max(0, Number(next.releaseMargin));
+    next.noiseThreshold = Math.max(0, Number(next.noiseThreshold));
+    next.holdMs = Math.max(0, Number(next.holdMs));
+    this.config = next;
+  }
+
+  getConfig() {
+    return { ...this.config };
   }
 
   process(input: SignalInput): ProcessedSignal {
     const nowMs = Date.now();
-    if (!this.startedAt) this.reset(nowMs);
-    if (this.lastSampleAt && nowMs - this.lastSampleAt > 2_000) {
-      // Stream gap usually means a new user/session. Recalibrate automatically.
-      this.reset(nowMs);
-    }
-    this.lastSampleAt = nowMs;
-
     const raw = Number(input.raw);
     const voltage = Number(input.voltage);
 
-    if (this.movingAvg === 0) this.movingAvg = raw;
-    const avgAlpha = 0.02; // moving average baseline
-    this.movingAvg = this.movingAvg + avgAlpha * (raw - this.movingAvg);
+    // Noise rejector in absolute ADC units:
+    // - too high above left bound => noise
+    // - too low below right bound => noise
+    // This only guards extreme excursions; regular in-range behavior is unchanged.
+    const tooHigh = raw > this.config.leftLimit + this.config.noiseThreshold;
+    const tooLow = raw < this.config.rightLimit - this.config.noiseThreshold;
+    const isExtremeNoise = tooHigh || tooLow;
 
-    const detrended = raw - this.movingAvg;
-    this.noiseEma = this.noiseEma + 0.05 * (Math.abs(detrended) - this.noiseEma);
-
-    this.detrendedWindow.push(detrended);
-    if (this.detrendedWindow.length > this.kernel.length) this.detrendedWindow.shift();
-
-    let convScore = 0;
-    if (this.detrendedWindow.length === this.kernel.length) {
-      for (let i = 0; i < this.kernel.length; i++) {
-        convScore += this.kernel[i] * this.detrendedWindow[i];
-      }
-    }
-    this.convNoiseEma = this.convNoiseEma + 0.05 * (Math.abs(convScore) - this.convNoiseEma);
-
-    if (!this.isCalibrated) {
-      this.calibrationValues.push(raw);
-      if (nowMs - this.startedAt >= this.calibrationMs && this.calibrationValues.length > 50) {
-        let sum = 0;
-        for (const v of this.calibrationValues) sum += v;
-        this.calibratedMean = sum / this.calibrationValues.length;
-        let varSum = 0;
-        for (const v of this.calibrationValues) varSum += (v - this.calibratedMean) ** 2;
-        this.calibratedStd = Math.sqrt(varSum / this.calibrationValues.length) || 18;
-        this.isCalibrated = true;
-      }
-    }
-
-    const calibratedMargin = Math.max(
-      this.minMargin,
-      this.calibratedStd * 4,
-      this.noiseEma * 7
-    );
-    const lowerBound = this.movingAvg - calibratedMargin;
-    const upperBound = this.movingAvg + calibratedMargin;
-
-    const convThreshold = Math.max(
-      this.minConvThreshold,
-      this.convNoiseEma * 3.6,
-      this.calibratedStd * 0.9
-    );
-
-    if (Math.abs(convScore) < convThreshold * 0.35) {
-      this.readyForNextEvent = true;
-    }
-
-    if (
-      this.readyForNextEvent &&
-      nowMs - this.lastEventAt > this.refractoryMs &&
-      Math.abs(convScore) > convThreshold
-    ) {
-      this.direction = convScore > 0 ? -1 : 1;
-      this.lastEventAt = nowMs;
-      this.holdUntil = nowMs + this.directionHoldMs;
-      this.readyForNextEvent = false;
-    } else if (nowMs > this.holdUntil) {
+    if (isExtremeNoise) {
       this.direction = 0;
+      this.holdUntilMs = 0;
+    } else {
+      // While in hold window, keep the current direction stable.
+      if (this.direction !== 0 && nowMs < this.holdUntilMs) {
+        return {
+          type: "signal",
+          raw,
+          voltage,
+          timestamp: input.timestamp ?? Date.now() / 1000,
+          yMin: this.config.yMin,
+          yMax: this.config.yMax,
+          leftLimit: this.config.leftLimit,
+          rightLimit: this.config.rightLimit,
+          noiseThreshold: this.config.noiseThreshold,
+          direction: this.direction,
+          eogConfig: this.getConfig(),
+        };
+      }
+
+      // Immediate edge-hit activation:
+      // - Hit leftLimit => LEFT
+      // - Hit rightLimit => RIGHT
+      // - Return to CENTER once signal comes back inside hysteresis band.
+      if (raw >= this.config.leftLimit) {
+        if (this.direction !== 1) {
+          this.direction = 1;
+          this.holdUntilMs = nowMs + this.config.holdMs;
+        }
+      } else if (raw <= this.config.rightLimit) {
+        if (this.direction !== -1) {
+          this.direction = -1;
+          this.holdUntilMs = nowMs + this.config.holdMs;
+        }
+      } else if (
+        this.direction === 1 &&
+        raw < this.config.leftLimit - this.config.releaseMargin
+      ) {
+        this.direction = 0;
+        this.holdUntilMs = 0;
+      } else if (
+        this.direction === -1 &&
+        raw > this.config.rightLimit + this.config.releaseMargin
+      ) {
+        this.direction = 0;
+        this.holdUntilMs = 0;
+      }
     }
 
     return {
       type: "signal",
       raw,
       voltage,
-      timestamp: input.timestamp ?? nowMs / 1000,
-      movingAvg: this.movingAvg,
-      lowerBound,
-      upperBound,
-      convScore,
-      convThreshold,
+      timestamp: input.timestamp ?? Date.now() / 1000,
+      yMin: this.config.yMin,
+      yMax: this.config.yMax,
+      leftLimit: this.config.leftLimit,
+      rightLimit: this.config.rightLimit,
+      noiseThreshold: this.config.noiseThreshold,
       direction: this.direction,
-      calibrated: this.isCalibrated,
-      calibrationRemainingMs: this.isCalibrated
-        ? 0
-        : Math.max(0, this.calibrationMs - (nowMs - this.startedAt)),
+      eogConfig: this.getConfig(),
     };
   }
 }
@@ -237,17 +221,33 @@ app.route("/zoom", zoom);
  */
 app.get(
   "/ws",
-  upgradeWebSocket(() => {
-    let dgConnection: ReturnType<ReturnType<typeof createClient>["listen"]["live"]> | null = null;
-
-    return {
-      onOpen(_evt, ws) {
-        signalClients.add(ws);
-        ws.send(JSON.stringify({ type: "connected" }));
-
-        if (!DEEPGRAM_API_KEY) {
-          ws.send(JSON.stringify({ type: "error", message: "DEEPGRAM_API_KEY not set" }));
-          return;
+  upgradeWebSocket(() => ({
+    onOpen(_, ws) {
+      signalClients.add(ws);
+      ws.send(JSON.stringify({ type: "connected" }));
+    },
+    onMessage(event, ws) {
+      try {
+        const raw = event.data;
+        if (typeof raw !== "string") return;
+        const data = JSON.parse(raw);
+        if (data.type === "signal") {
+          const processed = eogProcessor.process(data as SignalInput);
+          const payload = JSON.stringify(processed);
+          // Fan out to all other connected clients.
+          for (const client of signalClients) {
+            if (client === ws) continue;
+            try {
+              client.send(payload);
+            } catch {
+              // Ignore send errors for stale sockets; onClose will prune.
+            }
+          }
+        } else if (data.type === "subscribe") {
+          ws.send(JSON.stringify({ type: "subscribed", eogConfig: eogProcessor.getConfig() }));
+        } else if (data.type === "eog-config") {
+          eogProcessor.updateConfig(data.config ?? {});
+          ws.send(JSON.stringify({ type: "eog-config-updated", eogConfig: eogProcessor.getConfig() }));
         }
 
         const deepgram = createClient(DEEPGRAM_API_KEY);
