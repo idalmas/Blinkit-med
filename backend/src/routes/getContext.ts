@@ -306,6 +306,52 @@ Instructions:
 Example format:
 ["That sounds great, let's do it","I'm not sure about that","Can you tell me more?","I was actually thinking about something else","Yeah, I agree completely","What time works for you?"]`;
     },
+    buildUserMessage(text?: string): string {
+      return "Generate conversational response options based on the transcript.";
+    },
+  },
+
+  chat: {
+    label: "Chat",
+    maxTokens: 1024,
+
+    buildPrompt(chunks: ContextChunk[], text?: string): string {
+      const contextBlock =
+        chunks.length > 0
+          ? chunks
+              .map(
+                (c, i) =>
+                  `[${i + 1}] ${c.speaker ? `(${c.speaker}) ` : ""}${c.content}`
+              )
+              .join("\n")
+          : "(No relevant context found.)";
+
+      const focusLine = text
+        ? `The user wants to talk about: "${text}". Focus the conversation starters around this topic.`
+        : "Generate broad conversation starters based on the person's interests, recent conversations, and context.";
+
+      return `You are a personalized conversation starter generator. You have access to personal context about a user — their interests, conversations, habits, and preferences. Use this context to generate conversation prompts they might want to explore with an AI chatbot.
+
+Personal context:
+${contextBlock}
+
+${focusLine}
+
+Instructions:
+- Generate exactly 8 conversation starter prompts.
+- Each should be a natural question or topic the user might ask a chatbot (5-20 words).
+- Ground every prompt in something from the context — don't generate generic prompts.
+- Vary the types: some practical questions, some exploratory, some creative.
+- Return ONLY a JSON array of 8 strings. No descriptions, no objects, no extra text, no markdown fences, no explanation.
+
+Example format:
+["What are the best hiking trails near Seattle?","Help me plan a weekend camping trip","Explain how sourdough starters work","What should I cook for dinner tonight?"]`;
+    },
+    buildUserMessage(text?: string): string {
+      return text
+        ? `Generate conversation starters focused on: ${text}`
+        : "Generate conversation starters based on my context.";
+    },
   },
 };
 
