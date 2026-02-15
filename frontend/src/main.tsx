@@ -9,6 +9,7 @@ import WebSearchPage from './WebSearchPage.tsx'
 import FlappyBirdPage from './FlappyBirdPage.tsx'
 import BooksPage from './BooksPage.tsx'
 import TalkPage from './TalkPage.tsx'
+import SubwaySurfersPage from './SubwaySurfersPage.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -23,6 +24,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/apps/flappy-bird" element={<FlappyBirdPage />} />
         <Route path="/apps/books" element={<BooksPage />} />
         <Route path="/apps/talk" element={<TalkPage />} />
+        <Route path="/apps/subway-surfers" element={<SubwaySurfersPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

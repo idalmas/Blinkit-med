@@ -23,7 +23,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
-import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
+import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone, FaRunning } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 /** Describes a single app card in the launcher grid. */
@@ -93,6 +93,14 @@ const apps: AppCard[] = [
     shadow: 'rgba(139, 92, 246, 0.4)',
     description: 'Voice conversations',
     path: '/apps/talk',
+  },
+  {
+    name: 'Subway Surfers',
+    icon: <FaRunning size={48} />,
+    gradient: 'linear-gradient(135deg, #e74c3c 0%, #3498db 50%, #e74c3c 100%)',
+    shadow: 'rgba(231, 76, 60, 0.4)',
+    description: 'Wink to dodge trains',
+    path: '/apps/subway-surfers',
   },
 ]
 
@@ -184,6 +192,7 @@ export default function AppsPage() {
           fontWeight: 700,
           marginBottom: 8,
           letterSpacing: '-1px',
+          fontFamily: '"Geist", system-ui, -apple-system, sans-serif',
         }}
       >
         Apps
@@ -194,6 +203,7 @@ export default function AppsPage() {
           fontSize: 16,
           marginBottom: 16,
           marginTop: 0,
+          fontFamily: '"Geist", system-ui, -apple-system, sans-serif',
         }}
       >
         Connect with your favorite platforms
@@ -300,26 +310,16 @@ export default function AppsPage() {
                 {app.icon}
               </div>
 
-              <div style={{ textAlign: 'center' }}>
-                <div
-                  style={{
-                    color: '#fff',
-                    fontSize: 17,
-                    fontWeight: 600,
-                    marginBottom: 4,
-                  }}
-                >
-                  {app.name}
-                </div>
-                <div
-                  style={{
-                    color: isHighlighted ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.35)',
-                    fontSize: 13,
-                    transition: 'color 0.3s ease',
-                  }}
-                >
-                  {app.description}
-                </div>
+              <div
+                style={{
+                  color: '#fff',
+                  fontSize: 17,
+                  fontWeight: 600,
+                  textAlign: 'center',
+                  fontFamily: '"Geist", system-ui, -apple-system, sans-serif',
+                }}
+              >
+                {app.name}
               </div>
             </div>
           )
@@ -418,6 +418,11 @@ export default function AppsPage() {
         @keyframes float6 {
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-9px); }
+        }
+
+        @keyframes float7 {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-11px); }
         }
 
         .app-card:hover {
