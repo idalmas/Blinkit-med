@@ -14,10 +14,11 @@
  * Parent: mounted by src/index.ts at `/upload`
  *
  * Exported helper:
- *   uploadChunk(text, speaker, source) → { id: string }
+ *   uploadChunk(text, speaker, source, person) → { id: string }
  *
  * Request body (JSON):
  *   - text:    string — the content to store (required).
+ *   - person:  string — the persona this data belongs to (required, e.g. "ian").
  *   - speaker: string — optional label for who said it (e.g. "Ian").
  *   - source:  string — optional label for the data source (e.g. "transcript",
  *                        "notes", "calendar"). Defaults to "transcript".
@@ -45,12 +46,14 @@ const upload = new Hono();
  * @param text     The text content to embed and store.
  * @param speaker  Who said it (nullable, e.g. "Ian").
  * @param source   Data-source label (e.g. "transcript", "notes"). Non-nullable.
+ * @param person   The persona this data belongs to (e.g. "ian", "hagrid").
  * @returns        An object with the Elasticsearch document `id`.
  */
 export async function uploadChunk(
   text: string,
   speaker: string | null,
-  source: string
+  source: string,
+  person: string
 ): Promise<{ id: string }> {
   const embedding = await embed(text);
 
@@ -60,6 +63,7 @@ export async function uploadChunk(
       content: text,
       speaker,
       source,
+      person,
       embedding,
       created_at: new Date().toISOString(),
     },
@@ -71,13 +75,14 @@ export async function uploadChunk(
 /**
  * POST / — upload a single chunk of personal context.
  *
- * @input  { text: string, speaker?: string, source?: string }
+ * @input  { text: string, person: string, speaker?: string, source?: string }
  * @output { success: true, id: string } | { error: string }
  */
 upload.post("/", async (c) => {
   try {
     const body = await c.req.json<{
       text?: string;
+      person?: string;
       speaker?: string;
       source?: string;
     }>();
@@ -90,12 +95,20 @@ upload.post("/", async (c) => {
       );
     }
 
+    if (!body.person || body.person.trim().length === 0) {
+      return c.json(
+        { error: '"person" is required and must be a non-empty string.' },
+        400
+      );
+    }
+
     const text = body.text.trim();
+    const person = body.person.trim().toLowerCase();
     const speaker = body.speaker?.trim() || null;
     const source = body.source?.trim() || "transcript";
 
     /* ── Embed & index via helper ─────────────────────────── */
-    const { id } = await uploadChunk(text, speaker, source);
+    const { id } = await uploadChunk(text, speaker, source, person);
 
     return c.json({ success: true, id });
   } catch (err) {

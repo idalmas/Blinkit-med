@@ -18,6 +18,8 @@
  * On startup:
  *   - Calls ensureIndex() to create the Elasticsearch `person-context` index
  *     if it doesn't already exist.
+ *   - Calls ensurePersonField() to add the `person` keyword field to the
+ *     mapping if the index already existed before the field was introduced.
  *
  * Run with:
  *   bun run dev      (hot-reload)
@@ -27,7 +29,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { ensureIndex } from "./lib/elasticsearch";
+import { ensureIndex, ensurePersonField } from "./lib/elasticsearch";
 import upload from "./routes/upload";
 import generate from "./routes/generate";
 import long from "./routes/long";
@@ -68,8 +70,10 @@ app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
 
 const PORT = Number(process.env.PORT) || 3001;
 
-// Create the Elasticsearch index if it doesn't exist, then start serving.
+// Create the Elasticsearch index if it doesn't exist, then add the `person`
+// field to the mapping (safe no-op if it already exists), then start serving.
 ensureIndex()
+  .then(() => ensurePersonField())
   .then(() => {
     console.log(`🚀 Revive backend listening on http://localhost:${PORT}`);
   })

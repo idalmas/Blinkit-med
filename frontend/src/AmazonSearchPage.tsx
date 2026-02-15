@@ -33,6 +33,14 @@ import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 /** Base URL for the Hono backend (Elasticsearch + BrightData + Cerebras). */
 const API_BASE = 'http://localhost:3001'
 
+/**
+ * PERSON — the persona whose Elasticsearch context is used for personalisation.
+ *
+ * Set via the NEXT_PUBLIC_PERSON env var (e.g. "ian", "hagrid").
+ * Defaults to "ian" when unset.
+ */
+const PERSON = (process.env.NEXT_PUBLIC_PERSON ?? 'ian').trim().toLowerCase()
+
 /** How often (ms) to poll BrightData for scrape completion. */
 const POLL_INTERVAL = 3000
 
@@ -358,7 +366,7 @@ export default function AmazonSearchPage() {
         const res = await fetch(`${API_BASE}/getContext`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ app: 'Amazon', k: 10 }),
+          body: JSON.stringify({ app: 'Amazon', person: PERSON, k: 10 }),
         })
         if (!res.ok) {
           console.warn('[getContext] Non-OK response:', res.status)
