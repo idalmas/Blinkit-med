@@ -127,6 +127,10 @@ export default function AmazonSearchPage() {
 
   const handleBlink = useCallback(
     (type: BlinkType) => {
+      if (type === 'long-close') {
+        navigate('/apps')
+        return
+      }
       if (products.length === 0) return
       if (type === 'double') {
         setSelectedOrigIdx((prev) => (prev === centerIdx ? null : centerIdx))
@@ -138,7 +142,7 @@ export default function AmazonSearchPage() {
         setCenterIdx((prev) => (prev + 1) % products.length)
       }
     },
-    [centerIdx, products, selectedOrigIdx, sendProductEmail]
+    [centerIdx, products, selectedOrigIdx, sendProductEmail, navigate]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
