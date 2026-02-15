@@ -26,6 +26,8 @@ import Webcam from 'react-webcam'
 import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
+import { SignalVisualizer } from './components/SignalVisualizer'
+
 /** Describes a single app card in the launcher grid. */
 interface AppCard {
   name: string
@@ -213,6 +215,11 @@ export default function AppsPage() {
         Wink left/right to browse &middot; Double-blink to open
       </p>
 
+      {/* Signal Visualizer */}
+      <div style={{ width: '100%', maxWidth: '800px', marginBottom: '40px', padding: '0 24px' }}>
+        <SignalVisualizer />
+      </div>
+
       <div
         style={{
           display: 'flex',
@@ -220,6 +227,7 @@ export default function AppsPage() {
           flexWrap: 'wrap',
           justifyContent: 'center',
           padding: '0 24px',
+          marginTop: '20px'
         }}
       >
         {apps.map((app, i) => {
