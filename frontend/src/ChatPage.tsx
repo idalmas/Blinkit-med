@@ -22,7 +22,13 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const [highlightedIdx, setHighlightedIdx] = useState(0)
+  const highlightedIdxRef = useRef(0)
   const handleSendRef = useRef<() => void>(() => {})
+  const suggestionClickRef = useRef<(s: string) => void>(() => {})
+
+  // Keep refs in sync
+  useEffect(() => { highlightedIdxRef.current = highlightedIdx }, [highlightedIdx])
 
   const handleBlink = useCallback(
     (type: BlinkType) => {
@@ -30,6 +36,23 @@ export default function ChatPage() {
         navigate('/apps')
         return
       }
+
+      // Suggestion navigation mode (when suggestions visible and no messages yet)
+      if (suggestions.length > 0 && messages.length === 0) {
+        if (type === 'wink-right') {
+          setHighlightedIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
+        } else if (type === 'wink-left') {
+          setHighlightedIdx((prev) => Math.max(prev - 1, 0))
+        } else if (type === 'double') {
+          const idx = highlightedIdxRef.current
+          if (idx >= 0 && idx < suggestions.length) {
+            suggestionClickRef.current(suggestions[idx])
+          }
+        }
+        return
+      }
+
+      // Chat mode — scroll and send
       if (type === 'wink-left') {
         messagesContainerRef.current?.scrollBy({ top: -300, behavior: 'smooth' })
       } else if (type === 'wink-right') {
@@ -38,7 +61,7 @@ export default function ChatPage() {
         handleSendRef.current()
       }
     },
-    [navigate]
+    [navigate, suggestions, messages.length]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
@@ -166,13 +189,16 @@ export default function ChatPage() {
   // Keep ref in sync so blink handler can call latest version
   handleSendRef.current = handleSend
 
-  const handleSuggestionClick = (suggestion: string) => {
+  const handleSuggestionClick = useCallback((suggestion: string) => {
     setInput(suggestion)
     // Auto-send after a tick so the input state updates
     setTimeout(() => {
       handleSendRef.current()
     }, 0)
-  }
+  }, [])
+
+  // Keep ref in sync so blink handler can call latest version
+  suggestionClickRef.current = handleSuggestionClick
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -278,38 +304,51 @@ export default function ChatPage() {
                   marginTop: 16,
                 }}
               >
-                {suggestions.map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleSuggestionClick(s)}
-                    style={{
-                      background: 'rgba(255,255,255,0.06)',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: 12,
-                      color: 'rgba(255,255,255,0.7)',
-                      padding: '10px 16px',
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      fontFamily: 'inherit',
-                      maxWidth: 300,
-                      textAlign: 'left',
-                      lineHeight: 1.4,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)'
-                      e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)'
-                      e.currentTarget.style.color = '#fff'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
-                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
-                      e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
-                    }}
-                  >
-                    {s}
-                  </button>
-                ))}
+                {suggestions.map((s, i) => {
+                  const isHighlighted = i === highlightedIdx
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => handleSuggestionClick(s)}
+                      style={{
+                        background: isHighlighted ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.06)',
+                        border: isHighlighted
+                          ? '1px solid rgba(99, 102, 241, 0.5)'
+                          : '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 12,
+                        color: isHighlighted ? '#fff' : 'rgba(255,255,255,0.7)',
+                        padding: '10px 16px',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        fontFamily: 'inherit',
+                        maxWidth: 300,
+                        textAlign: 'left',
+                        lineHeight: 1.4,
+                        boxShadow: isHighlighted ? '0 0 12px rgba(99, 102, 241, 0.3)' : 'none',
+                        transform: isHighlighted ? 'scale(1.05)' : 'scale(1)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)'
+                        e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)'
+                        e.currentTarget.style.color = '#fff'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isHighlighted) {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                          e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'
+                          e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)'
+                          e.currentTarget.style.color = '#fff'
+                        }
+                      }}
+                    >
+                      {s}
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
