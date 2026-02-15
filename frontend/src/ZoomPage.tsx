@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FaArrowLeft, FaVideo } from 'react-icons/fa'
 import ZoomMtgEmbedded from '@zoom/meetingsdk/embedded'
-import Webcam from 'react-webcam'
-import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 type ZoomClient = ReturnType<typeof ZoomMtgEmbedded.createClient>
 
@@ -21,11 +19,6 @@ interface SignatureResponse {
 
 interface RtmsLogsResponse {
   logs: string[]
-}
-
-interface TranscriptEntry {
-  line: string
-  rawText: string
 }
 
 function formatUnknownError(err: unknown): string {
@@ -53,8 +46,6 @@ export default function ZoomPage() {
   const [hostEmail, setHostEmail] = useState('')
   const [rtmsLogs, setRtmsLogs] = useState<string[]>([])
   const [rtmsError, setRtmsError] = useState('')
-  const [intentTarget, setIntentTarget] = useState<string | null>(null)
-  const [intentAt, setIntentAt] = useState<string>('')
   const [isBusy, setIsBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -187,7 +178,7 @@ export default function ZoomPage() {
     return () => clearInterval(timer)
   }, [])
 
-  const transcriptEntries: TranscriptEntry[] = rtmsLogs
+  const rtmsDataLines = rtmsLogs
     .map((line) => {
       const jsonStart = line.indexOf('{')
       if (jsonStart < 0) return null
@@ -196,42 +187,16 @@ export default function ZoomPage() {
         const payload = JSON.parse(line.slice(jsonStart)) as {
           metadata?: { userName?: string }
           data?: unknown
-          timestamp?: number
         }
         if (payload.data === undefined) return null
         const userName = payload.metadata?.userName || 'Unknown'
         const dataText = typeof payload.data === 'string' ? payload.data : JSON.stringify(payload.data)
-        const rawTimestamp = payload.timestamp
-        let displayTime = '--:--:--'
-        if (typeof rawTimestamp === 'number' && Number.isFinite(rawTimestamp) && rawTimestamp > 0) {
-          // RTMS timestamps can be in microseconds; normalize to milliseconds for Date.
-          const normalizedMs = rawTimestamp > 10_000_000_000_000 ? Math.floor(rawTimestamp / 1000) : rawTimestamp
-          displayTime = new Date(normalizedMs).toLocaleTimeString('en-US', { hour12: false })
-        }
-        return {
-          line: `[${displayTime}] ${userName}: ${dataText}`,
-          rawText: dataText,
-        }
+        return `${userName}: ${dataText}`
       } catch {
         return null
       }
     })
-    .filter((entry): entry is TranscriptEntry => Boolean(entry))
-
-  const rtmsDataLines = transcriptEntries.map((entry) => entry.line)
-
-  const handleBlink = useCallback(
-    (type: BlinkType) => {
-      if (type !== 'double') return
-      const latest = transcriptEntries[transcriptEntries.length - 1]
-      if (!latest) return
-      setIntentTarget(latest.rawText)
-      setIntentAt(new Date().toLocaleTimeString('en-US', { hour12: false }))
-    },
-    [transcriptEntries],
-  )
-
-  const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
+    .filter((line): line is string => Boolean(line))
 
   return (
     <div
@@ -383,44 +348,6 @@ export default function ZoomPage() {
               </button>
             </div>
             <p style={{ marginTop: 0, color: 'rgba(255,255,255,0.75)' }}>Raw RTMS output</p>
-            <p style={{ marginTop: 0, color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
-              Double-blink on camera to mark intent on latest transcript
-            </p>
-            <p style={{ marginTop: 0, color: 'rgba(134,239,172,0.9)', fontSize: 12 }}>
-              Blink: {blinkStatus}
-            </p>
-            <div
-              style={{
-                borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: '#0b1220',
-                padding: 8,
-                marginBottom: 10,
-                fontSize: 12,
-              }}
-            >
-              {intentTarget
-                ? `Intent captured at ${intentAt}: ${intentTarget}`
-                : 'No intent captured yet.'}
-            </div>
-            <div
-              style={{
-                width: '100%',
-                height: 150,
-                borderRadius: 10,
-                overflow: 'hidden',
-                border: '1px solid rgba(255,255,255,0.12)',
-                marginBottom: 10,
-              }}
-            >
-              <Webcam
-                ref={webcamRef}
-                audio={false}
-                videoConstraints={{ facingMode: 'user', width: 640, height: 480 }}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                mirrored
-              />
-            </div>
             {rtmsError ? <p style={{ color: '#fca5a5' }}>{rtmsError}</p> : null}
             <pre
               style={{
