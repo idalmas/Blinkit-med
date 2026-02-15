@@ -974,4 +974,106 @@ apps.get("/book-content/:id", async (c) => {
   }
 });
 
+/* ══════════════════════════════════════════════════════════════════
+   Talk — Fish Audio Voice Cloning + TTS
+   ══════════════════════════════════════════════════════════════════ */
+
+const FISH_AUDIO_API_KEY = process.env.FISH_AUDIO_API_KEY || "";
+const FISH_AUDIO_BASE = "https://api.fish.audio";
+
+/**
+ * POST /apps/talk/clone
+ * Accepts a multipart form upload with an audio file.
+ * Sends it to Fish Audio to create a cloned voice model.
+ * Returns { modelId: string }
+ */
+apps.post("/talk/clone", async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const file = body["audio"];
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: "Missing audio file" }, 400);
+    }
+
+    const title = (body["title"] as string) || "Cloned Voice";
+    const arrayBuf = await file.arrayBuffer();
+
+    const form = new FormData();
+    form.append("type", "tts");
+    form.append("title", title);
+    form.append("train_mode", "fast");
+    form.append("visibility", "private");
+    form.append("enhance_audio_quality", "true");
+    form.append("voices", new Blob([arrayBuf], { type: file.type }), file.name);
+
+    const res = await fetch(`${FISH_AUDIO_BASE}/model`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${FISH_AUDIO_API_KEY}` },
+      body: form,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[talk/clone] Fish Audio error:", errText);
+      return c.json({ error: "Voice cloning failed" }, 502);
+    }
+
+    const data = (await res.json()) as { _id: string };
+    return c.json({ modelId: data._id });
+  } catch (err) {
+    console.error("[talk/clone] Error:", err);
+    return c.json({ error: "Voice cloning failed" }, 500);
+  }
+});
+
+/**
+ * POST /apps/talk/generate
+ * Body: { text: string, referenceId: string }
+ * Returns the generated audio as an MP3 binary.
+ */
+apps.post("/talk/generate", async (c) => {
+  try {
+    const { text, referenceId } = await c.req.json<{
+      text: string;
+      referenceId: string;
+    }>();
+
+    if (!text || !referenceId) {
+      return c.json({ error: "Missing text or referenceId" }, 400);
+    }
+
+    const res = await fetch(`${FISH_AUDIO_BASE}/v1/tts`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${FISH_AUDIO_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        reference_id: referenceId,
+        format: "mp3",
+        mode: "s1",
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[talk/generate] Fish Audio error:", errText);
+      return c.json({ error: "Audio generation failed" }, 502);
+    }
+
+    const audioBuffer = await res.arrayBuffer();
+    return new Response(audioBuffer, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Length": String(audioBuffer.byteLength),
+      },
+    });
+  } catch (err) {
+    console.error("[talk/generate] Error:", err);
+    return c.json({ error: "Audio generation failed" }, 500);
+  }
+});
+
 export default apps;
