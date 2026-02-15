@@ -6,12 +6,17 @@ import {
 } from '@mediapipe/tasks-vision'
 
 const BLINK_THRESHOLD = 0.4
-const WINK_THRESHOLD = 0.4
-const WINK_OPEN_THRESHOLD = 0.2 // other eye must be below this to count as wink
 const MIN_BLINK_FRAMES = 1
 const MAX_BLINK_FRAMES = 20
 const MULTI_BLINK_WINDOW_MS = 600
-const WINK_COOLDOWN_MS = 400 // prevent rapid-fire wink events
+
+// Wink detection — uses smoothed scores + relative difference between eyes
+const WINK_CLOSED_MIN = 0.25     // closed eye must score at least this
+const WINK_DIFF_MIN = 0.12       // minimum difference between eyes
+const WINK_RATIO_MIN = 1.8       // closed/open score ratio threshold
+const EMA_ALPHA = 0.5            // smoothing factor (higher = more responsive)
+const MIN_WINK_FRAMES = 2        // require 2+ consecutive frames for stability
+const WINK_COOLDOWN_MS = 500     // cooldown between wink events
 
 export type BlinkType = 'single' | 'double' | 'triple' | 'wink-left' | 'wink-right'
 
@@ -37,6 +42,10 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
   const winkSideRef = useRef<'left' | 'right' | null>(null)
   const wasWinkingRef = useRef(false)
   const lastWinkTimeRef = useRef(0)
+
+  // EMA-smoothed eye scores for wink detection
+  const smoothLeftRef = useRef(0)
+  const smoothRightRef = useRef(0)
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'detecting' | 'error'>('loading')
 
@@ -138,13 +147,21 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
           }
           wasBlinkingRef.current = isClosed
 
-          // Wink detection: one eye closed, other open
-          // Note: webcam is mirrored, so person's left eye (eyeBlinkLeft) appears on right.
-          // We map: person winks LEFT eye → move LEFT, person winks RIGHT eye → move RIGHT
-          const leftClosed = leftScore > WINK_THRESHOLD && rightScore < WINK_OPEN_THRESHOLD
-          const rightClosed = rightScore > WINK_THRESHOLD && leftScore < WINK_OPEN_THRESHOLD
-          const isWinking = leftClosed || rightClosed
-          const currentWinkSide = leftClosed ? 'left' : rightClosed ? 'right' : null
+          // Wink detection with EMA smoothing + relative difference
+          smoothLeftRef.current = EMA_ALPHA * leftScore + (1 - EMA_ALPHA) * smoothLeftRef.current
+          smoothRightRef.current = EMA_ALPHA * rightScore + (1 - EMA_ALPHA) * smoothRightRef.current
+
+          const sL = smoothLeftRef.current
+          const sR = smoothRightRef.current
+          const diff = Math.abs(sL - sR)
+          const higher = Math.max(sL, sR)
+          const lower = Math.min(sL, sR)
+          const ratio = lower < 0.01 ? 999 : higher / lower
+
+          const isWinking = higher >= WINK_CLOSED_MIN && diff >= WINK_DIFF_MIN && ratio >= WINK_RATIO_MIN
+          const currentWinkSide: 'left' | 'right' | null = isWinking
+            ? (sL > sR ? 'left' : 'right')
+            : null
 
           if (isWinking && currentWinkSide) {
             if (!wasWinkingRef.current) {
@@ -157,7 +174,7 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
             if (
               wasWinkingRef.current &&
               winkSideRef.current &&
-              winkFrameCountRef.current >= MIN_BLINK_FRAMES &&
+              winkFrameCountRef.current >= MIN_WINK_FRAMES &&
               winkFrameCountRef.current <= MAX_BLINK_FRAMES
             ) {
               const timeSinceLastWink = now - lastWinkTimeRef.current
