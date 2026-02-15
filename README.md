@@ -11,9 +11,9 @@ Blinket is an assistive technology platform that lets users navigate the interne
 
 ## Why We Built This
 
-One of our teammates spent a summer in South Africa working directly with patients living with ALS. He saw firsthand how these patients — sharp, intelligent people with full cognitive ability — were effectively locked out of the internet. The tools that did exist, like the Tobii Dynavox, cost between **$6,000 and $15,000**, putting them out of reach for most families, especially in developing countries.
+One of our teammates spent a summer in South Africa working directly with patients living with ALS. He saw firsthand how these patients were effectively locked out of the internet. The tools that did exist, like the Tobii Dynavox, cost between **$6,000 and $15,000**, putting them out of reach for most families, especially in developing countries.
 
-We built Blinket to change that. Our system runs on **any laptop with a webcam** using open-source MediaPipe face tracking. No special hardware. No expensive eye-tracking devices. Total cost: **under $200 in API credits** for the full stack.
+We built Blinket to change that. Our system runs on **any laptop with a webcam** using open-source MediaPipe face tracking and also has electrodes to detect the movement of the eyes (the front of your eyes are more electronegatively charged than the back, thus they act as dipoles). Total cost: **under $200** for everything.
 
 ---
 
@@ -23,8 +23,8 @@ Blinket detects six distinct eye gestures using MediaPipe facial landmarks from 
 
 | Gesture | Action |
 |---------|--------|
-| **Wink left** | Navigate left / previous |
-| **Wink right** | Navigate right / next |
+| **Wink left / Look left** | Navigate left / previous |
+| **Wink right / Look right** | Navigate right / next |
 | **Double blink** | Select / confirm |
 | **Triple blink** | Go back / cancel |
 | **Quadruple blink** | Send (Morse keyboard) |
@@ -90,9 +90,7 @@ Join Zoom meetings directly in the browser via the Zoom Embedded SDK. Live meeti
 |----------|------|
 | Tobii Dynavox | $6,000 – $15,000 |
 | Other AAC devices | $3,000 – $10,000 |
-| **Blinket** | **< $200 in API credits** |
-
-Blinket requires only a laptop with a webcam — hardware most people already own. All the intelligence runs through affordable cloud APIs (Cerebras for LLM, Deepgram for transcription, Cohere for embeddings). No proprietary hardware. No licensing fees.
+| **Blinket** | **< $200** |
 
 ---
 
@@ -152,8 +150,4 @@ Runs the Zoom RTMS webhook listener on port 8080 for real-time meeting transcrip
 └─────────────────────────────────────────────┘
 ```
 
----
 
-## Team
-
-Built at a hackathon by a team that believes internet access is a right, not a privilege — especially for people whose bodies have stopped cooperating but whose minds never did.
