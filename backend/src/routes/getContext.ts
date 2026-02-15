@@ -12,12 +12,15 @@
  * Parent: mounted by src/index.ts at `/getContext`
  *
  * Request body (JSON):
- *   - app:  string  — the app name to generate for (required).
- *                      Must match a key in APP_CONFIGS (case-insensitive).
- *                      Currently supported: "Amazon".
- *   - text: string  — optional text to focus/narrow the generation.
- *                      E.g. "camping gear" to get camping-related product ideas.
- *   - k:    number  — how many context chunks to retrieve (default 5, max 20).
+ *   - app:    string  — the app name to generate for (required).
+ *                        Must match a key in APP_CONFIGS (case-insensitive).
+ *                        Currently supported: "Amazon".
+ *   - person: string  — the persona whose context to search (required,
+ *                        e.g. "ian", "hagrid"). Used as a kNN filter so only
+ *                        that person's data is retrieved.
+ *   - text:   string  — optional text to focus/narrow the generation.
+ *                        E.g. "camping gear" to get camping-related product ideas.
+ *   - k:      number  — how many context chunks to retrieve (default 5, max 20).
  *
  * Response (JSON):
  *   - app:     string  — the app that was queried.
@@ -209,7 +212,7 @@ function tryParseJson(raw: string): unknown | null {
 /**
  * POST / — retrieve personal context and generate app-specific output.
  *
- * @input  { app: string, text?: string, k?: number }
+ * @input  { app: string, person: string, text?: string, k?: number }
  * @output { app, query, context, result }
  *       | { app, query, context, rawResult } (if JSON parse fails)
  *       | { error, supportedApps? }
@@ -218,6 +221,7 @@ getContext.post("/", async (c) => {
   try {
     const body = await c.req.json<{
       app?: string;
+      person?: string;
       text?: string;
       k?: number;
     }>();
@@ -226,6 +230,14 @@ getContext.post("/", async (c) => {
     if (!body.app || body.app.trim().length === 0) {
       return c.json(
         { error: '"app" is required and must be a non-empty string.' },
+        400
+      );
+    }
+
+    /* ── Validate person ──────────────────────────────────── */
+    if (!body.person || body.person.trim().length === 0) {
+      return c.json(
+        { error: '"person" is required and must be a non-empty string.' },
         400
       );
     }
@@ -244,18 +256,19 @@ getContext.post("/", async (c) => {
       );
     }
 
+    const person = body.person.trim().toLowerCase();
     const text = body.text?.trim() || undefined;
     const k = Math.min(Math.max(body.k ?? DEFAULT_K, 1), MAX_K);
 
     /* ── Build & embed the query ──────────────────────────── */
     const query = buildQuery(config.label, text);
     console.log(
-      `🔍 getContext: app="${config.label}" query="${query}" k=${k}`
+      `🔍 getContext: app="${config.label}" person="${person}" query="${query}" k=${k}`
     );
 
     const queryEmbedding = await embed(query);
 
-    /* ── kNN search against Elasticsearch ─────────────────── */
+    /* ── kNN search against Elasticsearch (scoped to person) ── */
     const searchResult = await esClient.search({
       index: INDEX_NAME,
       knn: {
@@ -263,6 +276,7 @@ getContext.post("/", async (c) => {
         query_vector: queryEmbedding,
         k,
         num_candidates: KNN_NUM_CANDIDATES,
+        filter: { term: { person } },
       },
       _source: ["content", "speaker", "source"],
     });
