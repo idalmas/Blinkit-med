@@ -168,7 +168,7 @@ export default function FlappyBirdPage() {
               if (eyesClosedSinceRef.current === null) {
                 eyesClosedSinceRef.current = now
                 longCloseFiredRef.current = false
-              } else if (!longCloseFiredRef.current && (now - eyesClosedSinceRef.current) >= 3000) {
+              } else if (!longCloseFiredRef.current && (now - eyesClosedSinceRef.current) >= 2000) {
                 longCloseFiredRef.current = true
                 navigate('/apps')
               }

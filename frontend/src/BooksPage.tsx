@@ -151,7 +151,7 @@ export default function BooksPage() {
           flipForward()
         } else if (type === 'wink-left') {
           flipBack()
-        } else if (type === 'double') {
+        } else if (type === 'triple') {
           closeBook()
         }
       } else {
