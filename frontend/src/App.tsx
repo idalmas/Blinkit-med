@@ -336,7 +336,7 @@ export default function App() {
       <div
         style={{
           position: 'fixed',
-          top: 0,
+          top: 56,
           left: 0,
           right: 0,
           padding: '12px 20px',
