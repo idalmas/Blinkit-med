@@ -1,8 +1,8 @@
-# Revive
+# Blinket
 
 **Hands-free internet access for people with ALS and motor impairments.**
 
-Revive is an assistive technology platform that lets users navigate the internet, shop, search, read, chat, join video calls, and have conversations — all controlled entirely through eye blinks and winks detected via a standard webcam.
+Blinket is an assistive technology platform that lets users navigate the internet, shop, search, read, chat, join video calls, and have conversations — all controlled entirely through eye blinks and winks detected via a standard webcam.
 
 **Live demo:** [seattle-sepia.vercel.app](https://seattle-sepia.vercel.app)
 **Backend:** [revive-1-ef6k.onrender.com](https://revive-1-ef6k.onrender.com)
@@ -13,13 +13,13 @@ Revive is an assistive technology platform that lets users navigate the internet
 
 One of our teammates spent a summer in South Africa working directly with patients living with ALS. He saw firsthand how these patients — sharp, intelligent people with full cognitive ability — were effectively locked out of the internet. The tools that did exist, like the Tobii Dynavox, cost between **$6,000 and $15,000**, putting them out of reach for most families, especially in developing countries.
 
-We built Revive to change that. Our system runs on **any laptop with a webcam** using open-source MediaPipe face tracking. No special hardware. No expensive eye-tracking devices. Total cost: **under $200 in API credits** for the full stack.
+We built Blinket to change that. Our system runs on **any laptop with a webcam** using open-source MediaPipe face tracking. No special hardware. No expensive eye-tracking devices. Total cost: **under $200 in API credits** for the full stack.
 
 ---
 
 ## How It Works
 
-Revive detects six distinct eye gestures using MediaPipe facial landmarks from a standard webcam:
+Blinket detects six distinct eye gestures using MediaPipe facial landmarks from a standard webcam:
 
 | Gesture | Action |
 |---------|--------|
@@ -39,16 +39,16 @@ Every interaction is personalized through a **RAG pipeline**: user context is em
 ## Apps
 
 ### Talk
-Real-time voice conversation assistant. Deepgram transcribes speech live, and on a double-blink, Revive generates contextual response options using RAG. Select a response with a wink and it's spoken aloud via Fish Audio TTS. Includes a Morse keyboard for typing custom messages through blink patterns.
+Real-time voice conversation assistant. Deepgram transcribes speech live, and on a double-blink, Blinket generates contextual response options using RAG. Select a response with a wink and it's spoken aloud via Fish Audio TTS. Includes a Morse keyboard for typing custom messages through blink patterns.
 
 ### Amazon Shopping
-Personalized product discovery. Revive generates search queries based on user context, scrapes Amazon via BrightData, and presents results in a 3D carousel. Double-blink to email yourself a product link.
+Personalized product discovery. Blinket generates search queries based on user context, scrapes Amazon via BrightData, and presents results in a 3D carousel. Double-blink to email yourself a product link.
 
 ### Google Maps
 Location-aware place discovery. Uses geolocation + personalized queries to find relevant businesses and places. Browse results with winks, double-blink to open in Google Maps.
 
 ### ChatGPT
-Streaming chat interface with personalized conversation starters. Revive suggests what you might want to ask based on your context. Wink to browse suggestions, double-blink to send. Full conversation history with scroll navigation.
+Streaming chat interface with personalized conversation starters. Blinket suggests what you might want to ask based on your context. Wink to browse suggestions, double-blink to send. Full conversation history with scroll navigation.
 
 ### Web Search
 Personalized web search. Generates queries from user context, scrapes search results via BrightData, and displays them in a browsable carousel with preview modals.
@@ -90,9 +90,9 @@ Join Zoom meetings directly in the browser via the Zoom Embedded SDK. Live meeti
 |----------|------|
 | Tobii Dynavox | $6,000 – $15,000 |
 | Other AAC devices | $3,000 – $10,000 |
-| **Revive** | **< $200 in API credits** |
+| **Blinket** | **< $200 in API credits** |
 
-Revive requires only a laptop with a webcam — hardware most people already own. All the intelligence runs through affordable cloud APIs (Cerebras for LLM, Deepgram for transcription, Cohere for embeddings). No proprietary hardware. No licensing fees.
+Blinket requires only a laptop with a webcam — hardware most people already own. All the intelligence runs through affordable cloud APIs (Cerebras for LLM, Deepgram for transcription, Cohere for embeddings). No proprietary hardware. No licensing fees.
 
 ---
 

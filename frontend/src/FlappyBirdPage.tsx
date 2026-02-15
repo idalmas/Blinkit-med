@@ -56,7 +56,7 @@ export default function FlappyBirdPage() {
   const animRef = useRef<number>(0)
   const [score, setScore] = useState(0)
   const [highScore, setHighScore] = useState(() => {
-    const stored = localStorage.getItem('revive-flappy-highscore')
+    const stored = localStorage.getItem('blinket-flappy-highscore')
     return stored ? parseInt(stored, 10) : 0
   })
   const [phase, setPhase] = useState<'waiting' | 'playing' | 'dead'>('waiting')
@@ -247,7 +247,7 @@ export default function FlappyBirdPage() {
           setPhase('dead')
           if (g.score > highScore) {
             setHighScore(g.score)
-            localStorage.setItem('revive-flappy-highscore', String(g.score))
+            localStorage.setItem('blinket-flappy-highscore', String(g.score))
           }
         }
 
@@ -259,7 +259,7 @@ export default function FlappyBirdPage() {
               setPhase('dead')
               if (g.score > highScore) {
                 setHighScore(g.score)
-                localStorage.setItem('revive-flappy-highscore', String(g.score))
+                localStorage.setItem('blinket-flappy-highscore', String(g.score))
               }
             }
           }

@@ -360,7 +360,7 @@ const PORT = Number(process.env.PORT) || 3003;
 ensureIndex()
   .then(() => ensurePersonField())
   .then(() => {
-    console.log(`🚀 Revive backend listening on http://localhost:${PORT}`);
+    console.log(`🚀 Blinket backend listening on http://localhost:${PORT}`);
   })
   .catch((err) => {
     console.error("❌ Failed to bootstrap Elasticsearch index:", err);

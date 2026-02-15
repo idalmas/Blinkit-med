@@ -159,7 +159,7 @@ export default function AmazonSearchPage() {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('revive-amazon-cache')
+      const stored = localStorage.getItem('blinket-amazon-cache')
       if (stored) {
         const entries = JSON.parse(stored) as [string, AmazonProduct[]][]
         cacheRef.current = new Map(entries)
@@ -176,7 +176,7 @@ export default function AmazonSearchPage() {
       if (first !== undefined) cacheRef.current.delete(first)
     }
     try {
-      localStorage.setItem('revive-amazon-cache', JSON.stringify([...cacheRef.current.entries()]))
+      localStorage.setItem('blinket-amazon-cache', JSON.stringify([...cacheRef.current.entries()]))
     } catch { /* storage full — non-critical */ }
   }, [])
 

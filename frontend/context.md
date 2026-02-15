@@ -1,7 +1,7 @@
 # Frontend Context: Hands-Free Interface
 
 ## Overview
-The Revive frontend is a React-based web application designed for hands-free interaction. It uses computer vision (MediaPipe) to translate facial gestures—specifically eye blinks and winks—into navigation and control commands across a suite of specialized applications.
+The Blinket frontend is a React-based web application designed for hands-free interaction. It uses computer vision (MediaPipe) to translate facial gestures—specifically eye blinks and winks—into navigation and control commands across a suite of specialized applications.
 
 ## Core Technology Stack
 - **Framework**: React 18 with Vite

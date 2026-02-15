@@ -1,7 +1,7 @@
 # Hardware Context: ESP32 EOG & Blink System
 
 ## Project Overview
-This project implements a biopotential measurement system using an ESP32 to detect eye movements (Electrooculography - EOG) and blinks. The system is designed to provide hands-free control for the Revive frontend.
+This project implements a biopotential measurement system using an ESP32 to detect eye movements (Electrooculography - EOG) and blinks. The system is designed to provide hands-free control for the Blinket frontend.
 
 ## 1. System Components
 - **Microcontroller**: ELEGOO ESP32 Type-C (ESP32-D0WD-V3)

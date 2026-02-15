@@ -1,4 +1,4 @@
-# Revive Backend
+# Blinket Backend
 
 RAG-powered conversational API built with **Bun + Hono + Supabase pgvector + Cerebras**.
 
@@ -98,7 +98,7 @@ curl -X POST http://localhost:3003/generate \
 Health check.
 
 ```json
-{ "status": "ok", "service": "revive-backend" }
+{ "status": "ok", "service": "blinket-backend" }
 ```
 
 ## Project Structure
