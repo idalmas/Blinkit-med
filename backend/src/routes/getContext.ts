@@ -14,7 +14,7 @@
  * Request body (JSON):
  *   - app:    string  — the app name to generate for (required).
  *                        Must match a key in APP_CONFIGS (case-insensitive).
- *                        Currently supported: "Amazon".
+ *                        Currently supported: "Amazon", "Web Search".
  *   - person: string  — the persona whose context to search (required,
  *                        e.g. "ian", "hagrid"). Used as a kNN filter so only
  *                        that person's data is retrieved.
@@ -82,6 +82,14 @@ interface AppConfig {
    */
   buildPrompt: (chunks: ContextChunk[], text?: string) => string;
 
+  /**
+   * buildUserMessage — creates the user message sent to Cerebras.
+   *
+   * @param text  Optional user-supplied text to focus the output.
+   * @returns     A user message string.
+   */
+  buildUserMessage: (text?: string) => string;
+
   /** Max tokens for the Cerebras response (needs to be higher for large outputs). */
   maxTokens: number;
 }
@@ -146,6 +154,103 @@ Instructions:
 
 Example format:
 ["camping solar lantern","portable espresso maker","waterproof hiking journal"]`;
+    },
+    /**
+     * Amazon user message — asks for product ideas with optional focus text.
+     *
+     * @param text  Optional focus keyword(s).
+     * @returns     User message string.
+     */
+    buildUserMessage(text?: string): string {
+      return text
+        ? `Generate product ideas focused on: ${text}`
+        : "Generate product ideas based on my context.";
+    },
+  },
+  websearch: {
+    label: "Web Search",
+    maxTokens: 1024,
+
+    /**
+     * Web Search prompt — generates 20 practical web search queries grounded in personal context.
+     *
+     * The prompt explicitly asks: "What are 20 search queries that make sense?"
+     * If `text` is provided, the queries are constrained to that topic.
+     * Returns a flat JSON array of 20 strings.
+     *
+     * @param chunks  Retrieved personal context chunks.
+     * @param text    Optional focus keyword(s).
+     * @returns       System prompt string.
+     */
+    buildPrompt(chunks: ContextChunk[], text?: string): string {
+      const contextBlock =
+        chunks.length > 0
+          ? chunks
+              .map(
+                (c, i) =>
+                  `[${i + 1}] ${c.speaker ? `(${c.speaker}) ` : ""}${c.content}`
+              )
+              .join("\n")
+          : "(No relevant context found.)";
+
+      const focusLine = text
+        ? `The user is specifically interested in: "${text}". Focus the search queries around this topic.`
+        : "Generate broad web search queries based on the person's interests, needs, and current context.";
+
+      return `You are a personalized web research assistant.
+
+Question to answer:
+"What are 20 search queries that make sense?"
+
+Personal context:
+${contextBlock}
+
+${focusLine}
+
+Instructions:
+- Generate exactly 20 search queries.
+- Each query should be realistic and useful in a web search engine.
+- Keep each query concise (3-12 words).
+- Ground every query in the context; avoid generic filler.
+- Return ONLY a JSON array of 20 strings. No descriptions, no objects, no extra text, no markdown fences, no explanation.
+
+Example format:
+["best lightweight camping stove","how to improve deep sleep routine","beginner trail running hydration tips"]`;
+    },
+    /**
+     * Web Search user message — asks for search queries with optional focus text.
+     *
+     * @param text  Optional focus keyword(s).
+     * @returns     User message string.
+     */
+    buildUserMessage(text?: string): string {
+      return text
+        ? `Generate web search queries focused on: ${text}`
+        : "Generate web search queries based on my context.";
+    },
+  },
+  "web search": {
+    label: "Web Search",
+    maxTokens: 1024,
+
+    /**
+     * Web Search alias prompt — delegates to the primary websearch config.
+     *
+     * @param chunks  Retrieved personal context chunks.
+     * @param text    Optional focus keyword(s).
+     * @returns       System prompt string.
+     */
+    buildPrompt(chunks: ContextChunk[], text?: string): string {
+      return APP_CONFIGS.websearch.buildPrompt(chunks, text);
+    },
+    /**
+     * Web Search alias user message — delegates to the primary websearch config.
+     *
+     * @param text  Optional focus keyword(s).
+     * @returns     User message string.
+     */
+    buildUserMessage(text?: string): string {
+      return APP_CONFIGS.websearch.buildUserMessage(text);
     },
   },
 };
@@ -298,9 +403,7 @@ getContext.post("/", async (c) => {
     /* ── Generate app-specific output via Cerebras ────────── */
     const systemPrompt = config.buildPrompt(context, text);
 
-    const userMessage = text
-      ? `Generate product ideas focused on: ${text}`
-      : "Generate product ideas based on my context.";
+    const userMessage = config.buildUserMessage(text);
 
     const dialog: DialogMessage[] = [{ role: "user", content: userMessage }];
 

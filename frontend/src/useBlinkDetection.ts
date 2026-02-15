@@ -23,6 +23,8 @@ const WINK_COOLDOWN_MS = 500     // cooldown between wink events
 const LONG_CLOSE_MS = 2500
 const LONG_CLOSE_THRESHOLD = 0.28   // lower than BLINK_THRESHOLD — relaxed lids hover lower
 const LONG_CLOSE_GRACE_MS = 300     // allow eyes to flicker open briefly without reset
+const LONG_CLOSE_MIN_EYE_SCORE = 0.34 // require each eye to be individually closed
+const LONG_CLOSE_MAX_EYE_DIFF = 0.1   // reject asymmetric closes (often winks/noise)
 
 export type BlinkType = 'single' | 'double' | 'triple' | 'wink-left' | 'wink-right' | 'long-close'
 
@@ -158,10 +160,25 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
           }
           wasBlinkingRef.current = isClosed
 
-          // Long-close detection — uses smoothed scores + grace period so brief
-          // flickers (noise, micro-movements) don't reset the timer.
-          const smoothAvg = (smoothLeftRef.current + smoothRightRef.current) / 2
-          const isLongClosed = smoothAvg > LONG_CLOSE_THRESHOLD
+          // Update smoothing before long-close logic so decisions use current frame data.
+          smoothLeftRef.current = EMA_ALPHA * leftScore + (1 - EMA_ALPHA) * smoothLeftRef.current
+          smoothRightRef.current = EMA_ALPHA * rightScore + (1 - EMA_ALPHA) * smoothRightRef.current
+
+          // Long-close detection — require both eyes closed and roughly symmetric.
+          // This prevents accidental "long-close" when one eye dominates (wink/noise)
+          // or when eyelids are only partially lowered.
+          const smoothLeft = smoothLeftRef.current
+          const smoothRight = smoothRightRef.current
+          const smoothAvg = (smoothLeft + smoothRight) / 2
+          const eyeDiff = Math.abs(smoothLeft - smoothRight)
+          const bothEyesClosed =
+            smoothLeft > LONG_CLOSE_MIN_EYE_SCORE &&
+            smoothRight > LONG_CLOSE_MIN_EYE_SCORE
+          const symmetricEnough = eyeDiff <= LONG_CLOSE_MAX_EYE_DIFF
+          const isLongClosed =
+            smoothAvg > LONG_CLOSE_THRESHOLD &&
+            bothEyesClosed &&
+            symmetricEnough
 
           if (isLongClosed) {
             // Eyes are (still) closed — clear any flicker tracker
@@ -189,11 +206,8 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
           }
 
           // Wink detection with EMA smoothing + relative difference
-          smoothLeftRef.current = EMA_ALPHA * leftScore + (1 - EMA_ALPHA) * smoothLeftRef.current
-          smoothRightRef.current = EMA_ALPHA * rightScore + (1 - EMA_ALPHA) * smoothRightRef.current
-
-          const sL = smoothLeftRef.current
-          const sR = smoothRightRef.current
+          const sL = smoothLeft
+          const sR = smoothRight
           const diff = Math.abs(sL - sR)
           const higher = Math.max(sL, sR)
           const lower = Math.min(sL, sR)
