@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaMapMarkerAlt, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch, FaPhone, FaGlobe } from 'react-icons/fa'
+
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 import { API_BASE, PERSON } from './config'
 const POLL_INTERVAL = 3000

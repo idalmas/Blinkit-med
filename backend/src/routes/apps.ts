@@ -680,6 +680,51 @@ apps.get("/web-search-status/:request_id", async (c) => {
  * Proxies a web page so it can be loaded in a same-origin iframe,
  * allowing programmatic scrolling via contentWindow.scrollBy().
  */
+function renderProxyErrorPage(title: string, detail: string, url?: string): string {
+  const safeUrl = url ? encodeURI(url) : "";
+  const link = url
+    ? `<p><a href="${safeUrl}" target="_blank" rel="noopener noreferrer">Open original page in new tab</a></p>`
+    : "";
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0b1220;
+        color: #e5e7eb;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+      }
+      .card {
+        max-width: 680px;
+        padding: 24px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+      }
+      h1 { margin: 0 0 8px; font-size: 20px; }
+      p { margin: 0 0 12px; line-height: 1.5; color: #cbd5e1; }
+      a { color: #93c5fd; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>${title}</h1>
+      <p>${detail}</p>
+      ${link}
+    </div>
+  </body>
+</html>`;
+}
+
 apps.get("/web-proxy", async (c) => {
   const targetUrl = c.req.query("url");
   if (!targetUrl) {
@@ -688,6 +733,8 @@ apps.get("/web-proxy", async (c) => {
 
   try {
     console.log(`[web-proxy] Fetching: ${targetUrl}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort("timeout"), 12000);
     const res = await fetch(targetUrl, {
       headers: {
         "User-Agent":
@@ -696,10 +743,32 @@ apps.get("/web-proxy", async (c) => {
         "Accept-Language": "en-US,en;q=0.9",
       },
       redirect: "follow",
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
-      return c.json({ error: `Upstream returned ${res.status}` }, 502);
+      const html = renderProxyErrorPage(
+        "Preview unavailable",
+        `The target site returned HTTP ${res.status}.`,
+        targetUrl
+      );
+      return new Response(html, {
+        status: 502,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
+      const html = renderProxyErrorPage(
+        "Preview not supported",
+        "This URL does not return embeddable HTML for the in-app viewer.",
+        targetUrl
+      );
+      return new Response(html, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
     }
 
     let html = await res.text();
@@ -732,7 +801,15 @@ apps.get("/web-proxy", async (c) => {
     });
   } catch (err) {
     console.error("[web-proxy] Error:", err);
-    return c.json({ error: "Failed to fetch page." }, 502);
+    const html = renderProxyErrorPage(
+      "Preview timed out",
+      "The page took too long to load or blocked proxy access.",
+      targetUrl
+    );
+    return new Response(html, {
+      status: 502,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 });
 

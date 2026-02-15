@@ -199,6 +199,8 @@ export default function WebSearchPage() {
   // Modal state for in-page iframe preview
   const [modalUrl, setModalUrl] = useState<string | null>(null)
   const [modalTitle, setModalTitle] = useState('')
+  const [modalLoading, setModalLoading] = useState(false)
+  const [modalError, setModalError] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   /**
@@ -211,6 +213,8 @@ export default function WebSearchPage() {
     const resultUrl = result.url || result.link
     if (!resultUrl) return
     console.log('[web-search] Opening in modal:', resultUrl)
+    setModalLoading(true)
+    setModalError(null)
     setModalUrl(resultUrl)
     setModalTitle(result.title || 'Web Result')
   }, [])
@@ -224,8 +228,26 @@ export default function WebSearchPage() {
     console.log('[web-search] Closing modal')
     setModalUrl(null)
     setModalTitle('')
+    setModalLoading(false)
+    setModalError(null)
     setSelectedOrigIdx(null)
   }, [])
+
+  /**
+   * modalLoadTimeout — prevents indefinite white iframe by surfacing timeout state.
+   *
+   * @returns void
+   */
+  useEffect(() => {
+    if (!modalUrl) return
+    setModalLoading(true)
+    setModalError(null)
+    const timer = setTimeout(() => {
+      setModalLoading(false)
+      setModalError('Preview timed out. Open in a new tab for this site.')
+    }, 12000)
+    return () => clearTimeout(timer)
+  }, [modalUrl])
 
   // Auto-scroll the iframe every 2 seconds while modal is open
   const scrollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -1267,12 +1289,36 @@ export default function WebSearchPage() {
             ref={iframeRef}
             src={`${API_BASE}/apps/web-proxy?url=${encodeURIComponent(modalUrl)}`}
             title={modalTitle}
+            onLoad={() => setModalLoading(false)}
+            onError={() => {
+              setModalLoading(false)
+              setModalError('Could not load this preview.')
+            }}
             style={{
               flex: 1,
               border: 'none',
               background: '#fff',
             }}
           />
+          {(modalLoading || modalError) && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(0,0,0,0.28)',
+                color: '#fff',
+                fontSize: 14,
+                pointerEvents: 'none',
+                textAlign: 'center',
+                padding: 24,
+              }}
+            >
+              {modalError ?? 'Loading preview...'}
+            </div>
+          )}
         </div>
       )}
 

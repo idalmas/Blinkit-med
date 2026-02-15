@@ -23,6 +23,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
