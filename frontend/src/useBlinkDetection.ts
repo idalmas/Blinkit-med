@@ -4,6 +4,7 @@ import {
   FaceLandmarker,
   FilesetResolver,
 } from '@mediapipe/tasks-vision'
+import { useInputMode } from './inputMode'
 
 const BLINK_THRESHOLD = 0.4
 const MIN_BLINK_FRAMES = 1
@@ -33,10 +34,13 @@ interface UseBlinkDetectionOptions {
 }
 
 export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
+  const { mode } = useInputMode()
   const webcamRef = useRef<Webcam>(null)
   const landmarkerRef = useRef<FaceLandmarker | null>(null)
   const animFrameRef = useRef<number>(0)
   const lastVideoTimeRef = useRef<number>(-1)
+  const eogWsRef = useRef<WebSocket | null>(null)
+  const lastEogDirectionRef = useRef<-1 | 0 | 1>(0)
 
   const closedFrameCountRef = useRef(0)
   const wasBlinkingRef = useRef(false)
@@ -92,7 +96,7 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
     }, MULTI_BLINK_WINDOW_MS)
   }, [commitBlinks])
 
-  // Init MediaPipe
+  // Init MediaPipe (always on: double/triple/long-close should work in all modes)
   useEffect(() => {
     let cancelled = false
     async function init() {
@@ -122,6 +126,56 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
     init()
     return () => { cancelled = true }
   }, [])
+
+  // EOG websocket input (maps direction to wink-left / wink-right)
+  useEffect(() => {
+    if (mode !== 'eog') {
+      if (eogWsRef.current) {
+        eogWsRef.current.close()
+        eogWsRef.current = null
+      }
+      lastEogDirectionRef.current = 0
+      return
+    }
+
+    setStatus('loading')
+    const ws = new WebSocket('ws://localhost:3001/ws')
+    eogWsRef.current = ws
+
+    ws.onopen = () => {
+      setStatus('detecting')
+      ws.send(JSON.stringify({ type: 'subscribe' }))
+    }
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data?.type !== 'signal') return
+        const direction = data.direction as -1 | 0 | 1 | undefined
+        if (direction == null) return
+        if (direction !== 0 && direction !== lastEogDirectionRef.current) {
+          const type: BlinkType = direction > 0 ? 'wink-left' : 'wink-right'
+          onBlinkRef.current?.(type, 1)
+        }
+        lastEogDirectionRef.current = direction
+      } catch {
+        // Ignore malformed socket messages.
+      }
+    }
+
+    ws.onclose = () => {
+      if (mode === 'eog') setStatus('error')
+    }
+    ws.onerror = () => {
+      if (mode === 'eog') setStatus('error')
+    }
+
+    return () => {
+      ws.close()
+      if (eogWsRef.current === ws) eogWsRef.current = null
+      lastEogDirectionRef.current = 0
+    }
+  }, [mode])
 
   // Detection loop
   const detect = useCallback(() => {
@@ -209,50 +263,58 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
             }
           }
 
-          // Wink detection with EMA smoothing + relative difference
-          const sL = smoothLeft
-          const sR = smoothRight
-          const diff = Math.abs(sL - sR)
-          const higher = Math.max(sL, sR)
-          const lower = Math.min(sL, sR)
-          const ratio = lower < 0.01 ? 999 : higher / lower
+          // Wink detection only in Blink mode.
+          // In EOG mode, left/right comes from electrode direction events.
+          if (mode === 'blink') {
+            const sL = smoothLeft
+            const sR = smoothRight
+            const diff = Math.abs(sL - sR)
+            const higher = Math.max(sL, sR)
+            const lower = Math.min(sL, sR)
+            const ratio = lower < 0.01 ? 999 : higher / lower
 
-          const isWinking = higher >= WINK_CLOSED_MIN && diff >= WINK_DIFF_MIN && ratio >= WINK_RATIO_MIN
-          const currentWinkSide: 'left' | 'right' | null = isWinking
-            ? (sL > sR ? 'left' : 'right')
-            : null
+            const isWinking = higher >= WINK_CLOSED_MIN && diff >= WINK_DIFF_MIN && ratio >= WINK_RATIO_MIN
+            const currentWinkSide: 'left' | 'right' | null = isWinking
+              ? (sL > sR ? 'left' : 'right')
+              : null
 
-          if (isWinking && currentWinkSide) {
-            if (!wasWinkingRef.current) {
-              winkSideRef.current = currentWinkSide
-              winkFrameCountRef.current = 1
-            } else if (winkSideRef.current === currentWinkSide) {
-              winkFrameCountRef.current++
-            }
-          } else {
-            if (
-              wasWinkingRef.current &&
-              winkSideRef.current &&
-              winkFrameCountRef.current >= MIN_WINK_FRAMES &&
-              winkFrameCountRef.current <= MAX_BLINK_FRAMES
-            ) {
-              const timeSinceLastWink = now - lastWinkTimeRef.current
-              if (timeSinceLastWink > WINK_COOLDOWN_MS) {
-                lastWinkTimeRef.current = now
-                const type: BlinkType = winkSideRef.current === 'left' ? 'wink-left' : 'wink-right'
-                onBlinkRef.current?.(type, 1)
+            if (isWinking && currentWinkSide) {
+              if (!wasWinkingRef.current) {
+                winkSideRef.current = currentWinkSide
+                winkFrameCountRef.current = 1
+              } else if (winkSideRef.current === currentWinkSide) {
+                winkFrameCountRef.current++
               }
+            } else {
+              if (
+                wasWinkingRef.current &&
+                winkSideRef.current &&
+                winkFrameCountRef.current >= MIN_WINK_FRAMES &&
+                winkFrameCountRef.current <= MAX_BLINK_FRAMES
+              ) {
+                const timeSinceLastWink = now - lastWinkTimeRef.current
+                if (timeSinceLastWink > WINK_COOLDOWN_MS) {
+                  lastWinkTimeRef.current = now
+                  const type: BlinkType = winkSideRef.current === 'left' ? 'wink-left' : 'wink-right'
+                  onBlinkRef.current?.(type, 1)
+                }
+              }
+              winkFrameCountRef.current = 0
+              winkSideRef.current = null
             }
+            wasWinkingRef.current = isWinking
+          } else {
+            // Reset camera-wink state while EOG mode is active.
+            wasWinkingRef.current = false
             winkFrameCountRef.current = 0
             winkSideRef.current = null
           }
-          wasWinkingRef.current = isWinking
         }
       }
     }
 
     animFrameRef.current = requestAnimationFrame(detect)
-  }, [status, registerBlink])
+  }, [mode, status, registerBlink])
 
   useEffect(() => {
     if (status === 'ready' || status === 'detecting') {
