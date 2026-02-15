@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
-import { FaArrowLeft, FaSpinner, FaMicrophone, FaVolumeUp } from 'react-icons/fa'
+import { FaArrowLeft, FaSpinner, FaMicrophone, FaVolumeUp, FaKeyboard } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 import { useRealtimeTranscription } from './useRealtimeTranscription'
 import { DiarizationPanel } from './DiarizationPanel'
+import { MorseKeyboard, type MorseKeyboardHandle } from './MorseKeyboard'
 import type { Utterance } from './types'
 
 import { API_BASE, PERSON } from './config'
@@ -36,6 +37,13 @@ export default function TalkPage() {
   // Error handling
   const [error, setError] = useState<string | null>(null)
 
+  // Morse keyboard for custom text input
+  const [morseOpen, setMorseOpen] = useState(false)
+  const morseRef = useRef<MorseKeyboardHandle>(null)
+
+  // Text currently being spoken (for display in GENERATING_AUDIO / PLAYING_AUDIO)
+  const [spokenText, setSpokenText] = useState('')
+
   // Snapshot of utterances used for getContext call
   const utteranceSnapshotRef = useRef<Utterance[]>([])
 
@@ -43,6 +51,7 @@ export default function TalkPage() {
   const {
     isRecording,
     utterances,
+    interimUtterance,
     speakers,
     error: transcriptionError,
     startRecording,
@@ -106,9 +115,10 @@ export default function TalkPage() {
     [utterances, speakers]
   )
 
-  // Generate and play TTS for selected option
-  const selectOption = useCallback(
-    async (idx: number) => {
+  // Generate and play TTS for arbitrary text
+  const speakText = useCallback(
+    async (text: string) => {
+      setSpokenText(text)
       setTalkState('GENERATING_AUDIO')
       setError(null)
 
@@ -116,7 +126,7 @@ export default function TalkPage() {
         const res = await fetch(`${API_BASE}/apps/talk/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: options[idx] }),
+          body: JSON.stringify({ text }),
         })
 
         if (!res.ok) throw new Error('Audio generation failed')
@@ -134,7 +144,15 @@ export default function TalkPage() {
         setTalkState('IDLE')
       }
     },
-    [options, audioUrl]
+    [audioUrl]
+  )
+
+  // Select a pre-generated option and speak it
+  const selectOption = useCallback(
+    async (idx: number) => {
+      await speakText(options[idx])
+    },
+    [options, speakText]
   )
 
   // Audio ended → back to IDLE
@@ -144,9 +162,26 @@ export default function TalkPage() {
     setTalkState('IDLE')
   }, [audioUrl])
 
+  // Total options including the "Type your own" entry
+  const totalOptions = options.length + 1
+
   // Blink handler — dispatches based on current state
   const handleBlink = useCallback(
     (type: BlinkType) => {
+      // Route to morse keyboard when open
+      if (morseOpen) {
+        if (type === 'quadruple') {
+          const text = morseRef.current?.getComposedText() || ''
+          setMorseOpen(false)
+          if (text.trim()) {
+            speakText(text.trim())
+          }
+          return
+        }
+        morseRef.current?.handleBlink(type)
+        return
+      }
+
       // Global: long-close always goes back to apps
       if (type === 'long-close') {
         navigate('/apps')
@@ -192,11 +227,16 @@ export default function TalkPage() {
 
         case 'PICKING_OPTION':
           if (type === 'wink-left') {
-            setOptionIdx((prev) => (prev - 1 + options.length) % options.length)
+            setOptionIdx((prev) => (prev - 1 + totalOptions) % totalOptions)
           } else if (type === 'wink-right') {
-            setOptionIdx((prev) => (prev + 1) % options.length)
+            setOptionIdx((prev) => (prev + 1) % totalOptions)
           } else if (type === 'double') {
-            selectOption(optionIdx)
+            if (optionIdx === options.length) {
+              // "Type your own" selected — open morse keyboard
+              setMorseOpen(true)
+            } else {
+              selectOption(optionIdx)
+            }
           } else if (type === 'triple') {
             setTalkState('IDLE')
           }
@@ -216,7 +256,7 @@ export default function TalkPage() {
           break
       }
     },
-    [talkState, utterances, speakers, options, optionIdx, navigate, fetchOptions, selectOption, audioUrl]
+    [morseOpen, talkState, utterances, speakers, options, totalOptions, optionIdx, navigate, fetchOptions, selectOption, speakText, audioUrl]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
@@ -274,6 +314,7 @@ export default function TalkPage() {
       {/* Diarization panel — always visible on left */}
       <DiarizationPanel
         utterances={utterances}
+        interimUtterance={interimUtterance}
         speakers={speakers}
         isRecording={isRecording}
         error={transcriptionError}
@@ -455,6 +496,51 @@ export default function TalkPage() {
                 </div>
               )
             })}
+
+            {/* "Type your own" option */}
+            {(() => {
+              const isFocused = optionIdx === options.length
+              return (
+                <div
+                  style={{
+                    width: '100%',
+                    padding: '14px 18px',
+                    borderRadius: 16,
+                    background: isFocused ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255,255,255,0.04)',
+                    border: isFocused
+                      ? '2px solid rgba(34, 197, 94, 0.6)'
+                      : '1px dashed rgba(255,255,255,0.15)',
+                    color: isFocused ? '#fff' : 'rgba(255,255,255,0.55)',
+                    fontSize: isFocused ? 17 : 15,
+                    fontWeight: isFocused ? 600 : 400,
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    transform: isFocused ? 'scale(1.02)' : 'scale(1)',
+                    boxShadow: isFocused ? '0 0 30px rgba(34, 197, 94, 0.2)' : 'none',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setMorseOpen(true)}
+                >
+                  <span
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 8,
+                      background: isFocused ? 'rgba(34, 197, 94, 0.3)' : 'rgba(255,255,255,0.08)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <FaKeyboard size={14} />
+                  </span>
+                  Type your own...
+                </div>
+              )
+            })()}
           </div>
         )}
 
@@ -483,7 +569,7 @@ export default function TalkPage() {
                 borderRadius: 16,
               }}
             >
-              "{options[optionIdx]}"
+              "{spokenText}"
             </div>
             <FaSpinner size={24} color="rgba(139, 92, 246, 0.8)" className="spin" />
             <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Generating speech...</div>
@@ -526,7 +612,7 @@ export default function TalkPage() {
                 lineHeight: 1.4,
               }}
             >
-              "{options[optionIdx]}"
+              "{spokenText}"
             </div>
             <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
               Triple-blink to go back
@@ -628,6 +714,41 @@ export default function TalkPage() {
               })}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Morse keyboard for custom text input */}
+      <MorseKeyboard
+        ref={morseRef}
+        isOpen={morseOpen}
+        onClose={(text) => {
+          setMorseOpen(false)
+          if (text.trim()) {
+            speakText(text.trim())
+          }
+        }}
+      />
+
+      {/* Morse mode indicator */}
+      {morseOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '6px 16px',
+            borderRadius: 20,
+            background: 'rgba(34, 197, 94, 0.2)',
+            border: '1px solid rgba(34, 197, 94, 0.4)',
+            color: '#4ade80',
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: 1,
+            zIndex: 40,
+          }}
+        >
+          MORSE MODE — 4x blink to send
         </div>
       )}
 

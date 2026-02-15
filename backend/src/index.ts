@@ -30,6 +30,7 @@ import { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 import { ensureIndex, ensurePersonField } from "./lib/elasticsearch";
 import upload from "./routes/upload";
 import generate from "./routes/generate";
@@ -37,6 +38,8 @@ import long from "./routes/long";
 import documents from "./routes/documents";
 import getContext from "./routes/getContext";
 import apps from "./routes/apps";
+
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || "";
 
 const app = new Hono();
 const { upgradeWebSocket, websocket } = createBunWebSocket();
@@ -65,25 +68,96 @@ app.route("/documents", documents);
 app.route("/getContext", getContext);
 app.route("/apps", apps);
 /**
- * GET /ws — minimal realtime transcription socket endpoint.
+ * GET /ws — realtime transcription via Deepgram.
  *
- * This endpoint accepts the Talk page WebSocket connection so the client can
- * start microphone streaming without failing handshake. Incoming audio frames
- * are currently ignored until a transcription engine is wired in.
+ * Accepts 16kHz int16 PCM audio from the Talk page, forwards it to Deepgram's
+ * streaming API, and relays transcript results back to the client.
  */
 app.get(
   "/ws",
-  upgradeWebSocket(() => ({
-    onOpen(_, ws) {
-      ws.send(JSON.stringify({ type: "connected" }));
-    },
-    onMessage() {
-      // Placeholder: audio frame processing will be added here.
-    },
-    onClose() {
-      // No-op.
-    },
-  }))
+  upgradeWebSocket(() => {
+    let dgConnection: ReturnType<ReturnType<typeof createClient>["listen"]["live"]> | null = null;
+
+    return {
+      onOpen(_evt, ws) {
+        ws.send(JSON.stringify({ type: "connected" }));
+
+        if (!DEEPGRAM_API_KEY) {
+          ws.send(JSON.stringify({ type: "error", message: "DEEPGRAM_API_KEY not set" }));
+          return;
+        }
+
+        const deepgram = createClient(DEEPGRAM_API_KEY);
+        dgConnection = deepgram.listen.live({
+          model: "nova-2",
+          language: "en",
+          smart_format: true,
+          diarize: true,
+          encoding: "linear16",
+          sample_rate: 16000,
+          channels: 1,
+          interim_results: true,
+          utterance_end_ms: 1000,
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Open, () => {
+          console.log("[deepgram] Connection opened");
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Transcript, (data: any) => {
+          const alt = data.channel?.alternatives?.[0];
+          if (!alt || !alt.transcript) return;
+
+          const words = (alt.words || []).map((w: any) => ({
+            word: w.word,
+            speaker: w.speaker ?? 0,
+            start: w.start,
+            end: w.end,
+            confidence: w.confidence,
+          }));
+
+          // Debug: log speaker values from Deepgram
+          if (data.is_final) {
+            const speakerVals = words.map((w: any) => w.speaker);
+            const unique = [...new Set(speakerVals)];
+            console.log(`[deepgram] final transcript: "${alt.transcript}" speakers: [${unique}]`);
+          }
+
+          ws.send(JSON.stringify({
+            type: "transcript",
+            transcript: alt.transcript,
+            words,
+            is_final: data.is_final ?? false,
+          }));
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Error, (err: any) => {
+          console.error("[deepgram] Error:", err);
+          ws.send(JSON.stringify({ type: "error", message: "Deepgram error" }));
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Close, () => {
+          console.log("[deepgram] Connection closed");
+        });
+      },
+
+      onMessage(event) {
+        if (dgConnection) {
+          const data = typeof event.data === "string"
+            ? Buffer.from(event.data)
+            : event.data;
+          dgConnection.send(data);
+        }
+      },
+
+      onClose() {
+        if (dgConnection) {
+          dgConnection.requestClose();
+          dgConnection = null;
+        }
+      },
+    };
+  })
 );
 
 /** Health check — useful for uptime monitoring. */
