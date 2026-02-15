@@ -98,11 +98,15 @@ const APP_CONFIGS: Record<string, AppConfig> = {
     maxTokens: 1024,
 
     /**
-     * Amazon prompt — generates 20 product idea names grounded in personal context.
+     * Amazon prompt — generates 20 Amazon search queries grounded in personal context.
      *
-     * If `text` is provided, the ideas are narrowed to that topic/keyword.
-     * Otherwise, broad product ideas are generated from the context alone.
-     * Returns just the product names as a flat JSON array of strings.
+     * Each query is phrased the way a real person would type into Amazon's
+     * search bar (2-5 words). These are used directly as BrightData scrape
+     * keywords, so they must be concrete and searchable.
+     *
+     * If `text` is provided, the queries are narrowed to that topic/keyword.
+     * Otherwise, broad queries are generated from the context alone.
+     * Returns a flat JSON array of 20 strings.
      *
      * @param chunks  Retrieved personal context chunks.
      * @param text    Optional focus keyword(s).
@@ -120,10 +124,10 @@ const APP_CONFIGS: Record<string, AppConfig> = {
           : "(No relevant context found.)";
 
       const focusLine = text
-        ? `The user is specifically interested in: "${text}". Focus the product ideas around this topic.`
-        : "Generate broad product ideas based on the person's interests, needs, and context.";
+        ? `The user is specifically interested in: "${text}". Focus the search queries around this topic.`
+        : "Generate broad product search queries based on the person's interests, needs, and context.";
 
-      return `You are a creative product ideation assistant for Amazon. You have access to personal context about a user — their interests, conversations, habits, and preferences. Use this context to generate product ideas that would genuinely appeal to this specific person.
+      return `You are a personalized product recommendation engine for Amazon. You have access to personal context about a user — their interests, conversations, habits, and preferences. Use this context to generate Amazon search queries for products that would genuinely appeal to this specific person.
 
 Personal context:
 ${contextBlock}
@@ -138,7 +142,7 @@ Instructions:
 - Return ONLY a JSON array of 20 strings. No descriptions, no objects, no extra text, no markdown fences, no explanation.
 
 Example format:
-["Solar Camping Lantern","Portable Trail Espresso Maker","Waterproof Hiking Notebook"]`;
+["camping solar lantern","portable espresso maker","waterproof hiking journal"]`;
     },
   },
 };
