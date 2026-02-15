@@ -36,10 +36,10 @@ const API_BASE = 'http://localhost:3003'
 /**
  * PERSON — the persona whose Elasticsearch context is used for personalisation.
  *
- * Set via the NEXT_PUBLIC_PERSON env var (e.g. "ian", "hagrid").
+ * Set via the VITE_PERSON env var in frontend/.env (e.g. VITE_PERSON=hagrid).
  * Defaults to "ian" when unset.
  */
-const PERSON = (process.env.NEXT_PUBLIC_PERSON ?? 'ian').trim().toLowerCase()
+const PERSON = (import.meta.env.VITE_PERSON ?? 'ian').trim().toLowerCase()
 
 /** How often (ms) to poll BrightData for scrape completion. */
 const POLL_INTERVAL = 3000
