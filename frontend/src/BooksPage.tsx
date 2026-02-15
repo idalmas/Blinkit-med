@@ -484,7 +484,7 @@ export default function BooksPage() {
               Ch. {currentChapter + 1}/{totalChapters}
             </span>
             <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>
-              Wink: flip | Double: close
+              Wink: flip | Triple: close
             </span>
             <button
               onClick={closeBook}

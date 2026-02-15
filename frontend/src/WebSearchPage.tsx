@@ -862,7 +862,7 @@ export default function WebSearchPage() {
         )}
         {suggestions.length > 0 && !(status === 'ready' && results.length > 0) && (
           <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: 12, margin: 0 }}>
-            Wink left/right to pick a suggestion, then triple blink to search
+            Wink left/right to pick a suggestion, then double-blink to search
           </p>
         )}
 
@@ -1232,7 +1232,7 @@ export default function WebSearchPage() {
                 marginLeft: 8,
               }}
             >
-              Triple-blink or press Esc to close
+              Triple-blink or press Esc to go back
             </span>
             <button
               onClick={closeModal}
