@@ -55,13 +55,8 @@ function normalizeProducts(raw: unknown): AmazonProduct[] {
   return []
 }
 
-const CARD_WIDTH = 320
-const CARD_GAP = 24
-const CARD_STEP = CARD_WIDTH + CARD_GAP
-
 export default function AmazonSearchPage() {
   const navigate = useNavigate()
-  const scrollRef = useRef<HTMLDivElement>(null)
   const [keyword, setKeyword] = useState('')
   const [limit, setLimit] = useState(20)
   const [status, setStatus] = useState<SearchStatus>('idle')
@@ -72,8 +67,35 @@ export default function AmazonSearchPage() {
   const failCountRef = useRef(0)
   const MAX_POLL_FAILURES = 5
 
-  // Center card tracking & blink selection
-  const [centerOrigIdx, setCenterOrigIdx] = useState(0)
+  // Search result cache (persisted in localStorage)
+  const cacheRef = useRef<Map<string, AmazonProduct[]>>(new Map())
+  const lastSearchKeyRef = useRef('')
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('revive-amazon-cache')
+      if (stored) {
+        const entries = JSON.parse(stored) as [string, AmazonProduct[]][]
+        cacheRef.current = new Map(entries)
+        console.log(`[cache] Loaded ${entries.length} cached searches`)
+      }
+    } catch { /* ignore corrupt data */ }
+  }, [])
+
+  const saveToCache = useCallback((key: string, data: AmazonProduct[]) => {
+    cacheRef.current.set(key, data)
+    // Keep only the last 50 searches
+    if (cacheRef.current.size > 50) {
+      const first = cacheRef.current.keys().next().value
+      if (first !== undefined) cacheRef.current.delete(first)
+    }
+    try {
+      localStorage.setItem('revive-amazon-cache', JSON.stringify([...cacheRef.current.entries()]))
+    } catch { /* storage full — non-critical */ }
+  }, [])
+
+  // State-based carousel: centerIdx is the product index shown in the center
+  const [centerIdx, setCenterIdx] = useState(0)
   const [selectedOrigIdx, setSelectedOrigIdx] = useState<number | null>(null)
   const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
 
@@ -103,27 +125,20 @@ export default function AmazonSearchPage() {
     }
   }, [])
 
-  const scrollByCards = useCallback((delta: number) => {
-    const el = scrollRef.current
-    if (!el) return
-    el.style.scrollBehavior = 'smooth'
-    el.scrollLeft += delta * CARD_STEP
-  }, [])
-
   const handleBlink = useCallback(
     (type: BlinkType) => {
       if (products.length === 0) return
       if (type === 'double') {
-        setSelectedOrigIdx((prev) => (prev === centerOrigIdx ? null : centerOrigIdx))
+        setSelectedOrigIdx((prev) => (prev === centerIdx ? null : centerIdx))
       } else if (type === 'triple' && selectedOrigIdx !== null) {
         sendProductEmail(products[selectedOrigIdx])
       } else if (type === 'wink-left') {
-        scrollByCards(-1)
+        setCenterIdx((prev) => ((prev - 1) + products.length) % products.length)
       } else if (type === 'wink-right') {
-        scrollByCards(1)
+        setCenterIdx((prev) => (prev + 1) % products.length)
       }
     },
-    [centerOrigIdx, products, selectedOrigIdx, sendProductEmail, scrollByCards]
+    [centerIdx, products, selectedOrigIdx, sendProductEmail]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
@@ -175,6 +190,9 @@ export default function AmazonSearchPage() {
             }
             stopPolling()
             setProducts(validProducts)
+            if (validProducts.length > 0) {
+              saveToCache(lastSearchKeyRef.current, validProducts)
+            }
             setStatus('ready')
           } else if (data.status === 'failed') {
             console.error(`[poll] Scrape failed:`, data)
@@ -194,12 +212,24 @@ export default function AmazonSearchPage() {
         }
       }, POLL_INTERVAL)
     },
-    [stopPolling]
+    [stopPolling, saveToCache]
   )
 
   const handleSearch = async () => {
     if (!keyword.trim()) return
 
+    // Check cache first
+    const cacheKey = keyword.trim().toLowerCase()
+    const cached = cacheRef.current.get(cacheKey)
+    if (cached && cached.length > 0) {
+      console.log(`[cache] Hit for "${cacheKey}" — ${cached.length} products`)
+      setProducts(cached)
+      setStatus('ready')
+      setErrorMsg('')
+      return
+    }
+
+    lastSearchKeyRef.current = cacheKey
     stopPolling()
     setProducts([])
     setErrorMsg('')
@@ -237,45 +267,11 @@ export default function AmazonSearchPage() {
     }
   }
 
-  // Infinite scroll: triple the list and reset position when near edges
-  const loopProducts = products.length > 0
-    ? [...products, ...products, ...products]
-    : []
-
-  const updateCenterCard = useCallback(() => {
-    const el = scrollRef.current
-    if (!el || products.length === 0) return
-    const containerCenter = el.scrollLeft + el.clientWidth / 2
-    const loopIdx = Math.round((containerCenter - 60) / CARD_STEP)
-    const origIdx = ((loopIdx % products.length) + products.length) % products.length
-    setCenterOrigIdx(origIdx)
-  }, [products])
-
+  // Reset centerIdx when products change (new search)
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el || products.length === 0) return
-
-    // Start at the middle copy
-    el.scrollLeft = products.length * CARD_STEP
-
-    const handleScroll = () => {
-      const singleSetWidth = products.length * CARD_STEP
-      if (el.scrollLeft < singleSetWidth * 0.25) {
-        el.style.scrollBehavior = 'auto'
-        el.scrollLeft += singleSetWidth
-        el.style.scrollBehavior = 'smooth'
-      } else if (el.scrollLeft > singleSetWidth * 1.75) {
-        el.style.scrollBehavior = 'auto'
-        el.scrollLeft -= singleSetWidth
-        el.style.scrollBehavior = 'smooth'
-      }
-      updateCenterCard()
-    }
-
-    updateCenterCard()
-    el.addEventListener('scroll', handleScroll)
-    return () => el.removeEventListener('scroll', handleScroll)
-  }, [products, updateCenterCard])
+    setCenterIdx(0)
+    setSelectedOrigIdx(null)
+  }, [products])
 
   const isLoading = status === 'submitting' || status === 'polling'
 
@@ -482,7 +478,7 @@ export default function AmazonSearchPage() {
 
         {status === 'ready' && products.length > 0 && (
           <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, margin: 0 }}>
-            {products.length} products found — scroll to browse
+            {products.length} products found — wink to browse
           </p>
         )}
       </div>
@@ -503,221 +499,196 @@ export default function AmazonSearchPage() {
           </p>
         )}
 
-        {products.length > 0 && (
-          <>
-            {/* Left fade */}
-            <div
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: 60,
-                background: 'linear-gradient(to right, #0a0a0a, transparent)',
-                zIndex: 2,
-                pointerEvents: 'none',
-              }}
-            />
-            {/* Right fade */}
-            <div
-              style={{
-                position: 'absolute',
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: 60,
-                background: 'linear-gradient(to left, #0a0a0a, transparent)',
-                zIndex: 2,
-                pointerEvents: 'none',
-              }}
-            />
+        {products.length > 0 && (() => {
+          // Build visible card set (7 positions: ±3 are invisible staging areas).
+          // Iterate center-outward so each product gets its closest-to-center slot.
+          const seen = new Set<number>()
+          const cards = [0, -1, 1, -2, 2, -3, 3]
+            .map((offset) => {
+              const idx = ((centerIdx + offset) % products.length + products.length) % products.length
+              if (seen.has(idx)) return null
+              seen.add(idx)
+              return { offset, idx, product: products[idx] }
+            })
+            .filter(Boolean) as { offset: number; idx: number; product: AmazonProduct }[]
 
-            <div
-              ref={scrollRef}
-              style={{
-                display: 'flex',
-                alignItems: 'flex-end',
-                gap: 24,
-                overflowX: 'auto',
-                padding: '20px 60px 80px',
-                width: '100%',
-                msOverflowStyle: 'none',
-                scrollbarWidth: 'none',
-              }}
-            >
-              {loopProducts.map((product, i) => {
-                const origIdx = i % products.length
-                const isCenter = origIdx === centerOrigIdx
-                const isSelected = origIdx === selectedOrigIdx
+          // Sort by product index so React never reorders DOM nodes mid-transition
+          cards.sort((a, b) => a.idx - b.idx)
+
+          // All cards share one base size — sizing is done purely via transform: scale()
+          // which is GPU-composited and avoids layout reflows.
+          const scaleFor = (o: number) => ({ 0: 1, 1: 0.68, 2: 0.52, 3: 0.4 }[Math.abs(o)] ?? 0.4)
+          const xFor = (o: number) => {
+            const sign = o < 0 ? -1 : 1
+            return ({ 0: 0, 1: 340, 2: 570, 3: 750 }[Math.abs(o)] ?? 750) * sign
+          }
+
+          return (
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              {cards.map(({ offset, idx, product }) => {
+                const absOffset = Math.abs(offset)
+                const isCenter = offset === 0
+                const isStaging = absOffset === 3
+                const isSelected = idx === selectedOrigIdx
+                const cardOpacity = isStaging ? 0 : isSelected || isCenter ? 1 : absOffset === 1 ? 0.7 : 0.4
 
                 return (
-                <a
-                  key={`${product.asin || 'p'}-${i}`}
-                  href={product.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    flex: isSelected
-                      ? `0 0 380px`
-                      : isCenter
-                        ? `0 0 350px`
-                        : `0 0 ${CARD_WIDTH}px`,
-                    height: isSelected ? 480 : isCenter ? 450 : 420,
-                    borderRadius: isSelected ? 24 : 20,
-                    background: isSelected
-                      ? 'rgba(255, 50, 50, 0.15)'
-                      : isCenter
-                        ? 'rgba(255,255,255,0.1)'
-                        : 'rgba(255,255,255,0.05)',
-                    border: isSelected
-                      ? '2px solid rgba(255, 60, 60, 0.8)'
-                      : isCenter
-                        ? '1px solid rgba(255,255,255,0.25)'
-                        : '1px solid rgba(255,255,255,0.08)',
-                    boxShadow: isSelected
-                      ? '0 0 50px rgba(255, 50, 50, 0.5), 0 0 100px rgba(255, 50, 50, 0.2), inset 0 0 30px rgba(255, 50, 50, 0.05)'
-                      : isCenter
-                        ? '0 16px 48px -8px rgba(255,153,0,0.2), 0 0 0 1px rgba(255,153,0,0.1)'
-                        : 'none',
-                    transform: 'none',
-                    opacity: isSelected || isCenter ? 1 : 0.7,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    textDecoration: 'none',
-                    transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                    cursor: 'pointer',
-                    overflow: 'hidden',
-                    zIndex: isSelected ? 3 : isCenter ? 1 : 0,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-10px)'
-                    e.currentTarget.style.opacity = '1'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'none'
-                    e.currentTarget.style.opacity = isSelected || isCenter ? '1' : '0.7'
-                  }}
-                >
-                  {/* Product image */}
-                  {(product.image_url || product.image) && (
-                    <div
-                      style={{
-                        height: 200,
-                        background: '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: 16,
-                        position: 'relative',
-                      }}
-                    >
-                      <img
-                        src={product.image_url || product.image}
-                        alt={product.title}
-                        style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
-                      />
-                      {product.badge && (
-                        <span
-                          style={{
-                            position: 'absolute',
-                            top: 12,
-                            left: 12,
-                            background: 'linear-gradient(135deg, #232F3E, #37475A)',
-                            color: '#FF9900',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            padding: '4px 10px',
-                            borderRadius: 6,
-                          }}
-                        >
-                          {product.badge}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Product info */}
-                  <div
+                  <a
+                    key={idx}
+                    href={product.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     style={{
-                      flex: 1,
-                      padding: '16px 20px 20px',
+                      position: 'absolute',
+                      left: '50%',
+                      top: '50%',
+                      width: 400,
+                      height: 520,
+                      transform: `translate(calc(-50% + ${xFor(offset)}px), -50%) scale(${scaleFor(offset)})`,
+                      willChange: 'transform, opacity',
+                      borderRadius: 24,
+                      background: isSelected
+                        ? 'rgba(255, 50, 50, 0.15)'
+                        : isCenter
+                          ? 'rgba(255,255,255,0.1)'
+                          : 'rgba(255,255,255,0.05)',
+                      border: isSelected
+                        ? '2px solid rgba(255, 60, 60, 0.8)'
+                        : isCenter
+                          ? '1px solid rgba(255,255,255,0.25)'
+                          : '1px solid rgba(255,255,255,0.08)',
+                      boxShadow: isSelected
+                        ? '0 0 50px rgba(255, 50, 50, 0.5), 0 0 100px rgba(255, 50, 50, 0.2)'
+                        : isCenter
+                          ? '0 16px 48px -8px rgba(255,153,0,0.3), 0 0 0 1px rgba(255,153,0,0.15)'
+                          : 'none',
+                      opacity: cardOpacity,
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: 8,
+                      textDecoration: 'none',
+                      transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s ease, border-color 0.4s ease, background 0.4s ease',
+                      cursor: isStaging ? 'default' : 'pointer',
+                      overflow: 'hidden',
+                      pointerEvents: isStaging ? 'none' : 'auto',
+                      zIndex: isSelected ? 4 : isCenter ? 3 : absOffset === 1 ? 2 : 1,
                     }}
                   >
-                    {/* Title */}
-                    <div
-                      style={{
-                        color: '#fff',
-                        fontSize: 14,
-                        fontWeight: 500,
-                        lineHeight: 1.4,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      {product.title}
-                    </div>
-
-                    {/* Brand */}
-                    {product.brand && (
-                      <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>
-                        {product.brand}
-                      </div>
-                    )}
-
-                    {/* Rating */}
-                    {product.rating != null && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <StarRating rating={product.rating} />
-                        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>
-                          {product.rating}
-                        </span>
-                        {product.reviews_count != null && (
-                          <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>
-                            ({product.reviews_count.toLocaleString()})
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Price */}
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 'auto' }}>
-                      {product.final_price != null && (
-                        <span style={{ color: '#fff', fontSize: 24, fontWeight: 700 }}>
-                          ${product.final_price.toFixed(2)}
-                        </span>
-                      )}
-                      {product.initial_price != null &&
-                        product.final_price != null &&
-                        product.initial_price > product.final_price && (
+                    {/* Product image */}
+                    {(product.image_url || product.image) && (
+                      <div
+                        style={{
+                          height: 260,
+                          background: '#fff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: 20,
+                          position: 'relative',
+                        }}
+                      >
+                        <img
+                          src={product.image_url || product.image}
+                          alt={product.title}
+                          style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
+                        />
+                        {product.badge && (
                           <span
                             style={{
-                              color: 'rgba(255,255,255,0.3)',
-                              fontSize: 14,
-                              textDecoration: 'line-through',
+                              position: 'absolute',
+                              top: 10,
+                              left: 10,
+                              background: 'linear-gradient(135deg, #232F3E, #37475A)',
+                              color: '#FF9900',
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: '3px 8px',
+                              borderRadius: 5,
                             }}
                           >
-                            ${product.initial_price.toFixed(2)}
+                            {product.badge}
                           </span>
                         )}
-                    </div>
-
-                    {product.bought_past_month != null && product.bought_past_month > 0 && (
-                      <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>
-                        {product.bought_past_month.toLocaleString()}+ bought last month
                       </div>
                     )}
-                  </div>
-                </a>
+
+                    {/* Product info */}
+                    <div
+                      style={{
+                        flex: 1,
+                        padding: '16px 20px 20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: '#fff',
+                          fontSize: 15,
+                          fontWeight: 500,
+                          lineHeight: 1.4,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {product.title}
+                      </div>
+
+                      {product.brand && (
+                        <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>
+                          {product.brand}
+                        </div>
+                      )}
+
+                      {product.rating != null && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <StarRating rating={product.rating} />
+                          <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>
+                            {product.rating}
+                          </span>
+                          {product.reviews_count != null && (
+                            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>
+                              ({product.reviews_count.toLocaleString()})
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 'auto' }}>
+                        {product.final_price != null && (
+                          <span style={{ color: '#fff', fontSize: 24, fontWeight: 700 }}>
+                            ${product.final_price.toFixed(2)}
+                          </span>
+                        )}
+                        {product.initial_price != null &&
+                          product.final_price != null &&
+                          product.initial_price > product.final_price && (
+                            <span
+                              style={{
+                                color: 'rgba(255,255,255,0.3)',
+                                fontSize: 14,
+                                textDecoration: 'line-through',
+                              }}
+                            >
+                              ${product.initial_price.toFixed(2)}
+                            </span>
+                          )}
+                      </div>
+
+                      {product.bought_past_month != null && product.bought_past_month > 0 && (
+                        <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>
+                          {product.bought_past_month.toLocaleString()}+ bought last month
+                        </div>
+                      )}
+                    </div>
+                  </a>
                 )
               })}
             </div>
-          </>
-        )}
+          )
+        })()}
       </div>
 
       {/* Webcam preview */}
