@@ -130,7 +130,7 @@ export default function AppsPage() {
    * Mapping:
    *   wink-right → next app
    *   wink-left  → previous app
-   *   triple     → open highlighted app
+   *   double     → open highlighted app
    */
   const handleBlink = useCallback(
     (type: BlinkType) => {
@@ -138,7 +138,7 @@ export default function AppsPage() {
         setHighlightIdx((prev) => (prev + 1) % apps.length)
       } else if (type === 'wink-left') {
         setHighlightIdx((prev) => (prev - 1 + apps.length) % apps.length)
-      } else if (type === 'triple') {
+      } else if (type === 'double') {
         const app = apps[highlightIdx]
         if (app?.path) navigate(app.path)
       }

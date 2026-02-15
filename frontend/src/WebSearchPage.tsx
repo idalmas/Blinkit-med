@@ -264,7 +264,7 @@ export default function WebSearchPage() {
           setHighlightedSuggestionIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
         } else if (type === 'wink-left') {
           setHighlightedSuggestionIdx((prev) => Math.max(prev - 1, 0))
-        } else if (type === 'triple') {
+        } else if (type === 'double') {
           const idx = highlightedSuggestionIdxRef.current
           if (idx >= 0 && idx < suggestions.length) {
             suggestionClickRef.current(suggestions[idx])

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FaMapMarkerAlt, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch, FaPhone, FaGlobe } from 'react-icons/fa'
+import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 const API_BASE = 'http://localhost:3003'
 const POLL_INTERVAL = 3000
@@ -68,6 +69,19 @@ function normalizePlaces(raw: unknown): MapsPlace[] {
 
 export default function MapsPage() {
   const navigate = useNavigate()
+
+  const handleBlink = useCallback(
+    (type: BlinkType) => {
+      if (type === 'long-close') {
+        navigate('/apps')
+        return
+      }
+    },
+    [navigate]
+  )
+
+  useBlinkDetection({ onBlink: handleBlink })
+
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<SearchStatus>('idle')
   const [places, setPlaces] = useState<MapsPlace[]>([])
