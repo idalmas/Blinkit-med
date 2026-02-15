@@ -2,130 +2,208 @@
  * long.ts — POST /long Route
  *
  * Accepts a large body of text (e.g. an entire transcript, essay, or journal
- * entry), splits it into overlapping chunks, embeds each chunk via OpenAI,
- * and indexes every chunk into the Elasticsearch `person-context` index.
+ * entry), splits it into semantically coherent chunks using embedding
+ * similarity, then uploads each chunk via the shared `uploadChunk()` helper
+ * from routes/upload.ts.
  *
  * This is the "bulk ingest" counterpart to the single-chunk `/upload` route.
  * Use it when you have a big piece of text and want all of it stored as
  * searchable context without manually splitting it yourself.
  *
- * Chunking strategy:
- *   1. Split on paragraph boundaries (double newlines).
- *   2. Merge consecutive paragraphs until the target chunk size is reached.
- *   3. Adjacent chunks overlap by `chunkOverlap` characters so that
- *      sentences straddling a boundary aren't lost.
+ * Semantic chunking strategy:
+ *   1. Split the raw text into sentences.
+ *   2. Embed every sentence via OpenAI.
+ *   3. Compute cosine similarity between each consecutive pair of sentence
+ *      embeddings.
+ *   4. Where the similarity drops below a configurable threshold, mark a
+ *      chunk boundary — that's where the topic shifts.
+ *   5. Group the sentences between boundaries into chunks.
+ *   6. Enforce min/max sentence counts per chunk so we don't get trivially
+ *      small or absurdly large chunks.
+ *   7. Upload each chunk through uploadChunk() (embed + index).
  *
  * Parent: mounted by src/index.ts at `/long`
  *
  * Request body (JSON):
- *   - text:         string  — the full text to chunk and upload (required).
- *   - speaker:      string  — optional label for who said it (e.g. "Ian").
- *   - source:       string  — optional label for the data source. Defaults
- *                              to "transcript".
- *   - chunkSize:    number  — target max characters per chunk. Defaults to 800.
- *   - chunkOverlap: number  — character overlap between adjacent chunks.
- *                              Defaults to 100.
+ *   - text:            string  — the full text to chunk and upload (required).
+ *   - speaker:         string  — optional label for who said it (e.g. "Ian").
+ *   - source:          string  — optional data-source label. Defaults to
+ *                                 "transcript".
+ *   - threshold:       number  — cosine similarity threshold (0–1) below which
+ *                                 a chunk boundary is placed. Lower = fewer,
+ *                                 larger chunks. Defaults to 0.5.
+ *   - minChunkSentences: number — minimum sentences per chunk. Defaults to 2.
+ *   - maxChunkSentences: number — maximum sentences per chunk. Defaults to 20.
  *
  * Response (JSON):
  *   - success:    boolean
- *   - totalChunks: number   — how many chunks were created.
+ *   - totalChunks: number   — how many semantic chunks were created.
  *   - ids:        string[]  — the Elasticsearch document IDs for every chunk.
  *
- * Dependencies: lib/elasticsearch.ts, lib/embeddings.ts
+ * Dependencies: lib/embeddings.ts, routes/upload.ts (uploadChunk helper)
  */
 
 import { Hono } from "hono";
-import { esClient, INDEX_NAME } from "../lib/elasticsearch";
 import { embed } from "../lib/embeddings";
+import { uploadChunk } from "./upload";
 
 const long = new Hono();
 
-/** Default target size (in characters) for each chunk. */
-const DEFAULT_CHUNK_SIZE = 800;
+/* ── Defaults ────────────────────────────────────────────────── */
 
-/** Default overlap (in characters) between adjacent chunks. */
-const DEFAULT_CHUNK_OVERLAP = 100;
+/** Default cosine-similarity threshold for placing chunk boundaries. */
+const DEFAULT_THRESHOLD = 0.5;
+
+/** Minimum number of sentences in a single chunk. */
+const DEFAULT_MIN_CHUNK_SENTENCES = 2;
+
+/** Maximum number of sentences in a single chunk. */
+const DEFAULT_MAX_CHUNK_SENTENCES = 20;
+
+/** How many sentences to embed at once (rate-limit friendly). */
+const EMBED_BATCH_SIZE = 10;
+
+/* ── Helper functions ────────────────────────────────────────── */
 
 /**
- * chunkText — splits a long string into overlapping chunks.
+ * splitSentences — splits a body of text into individual sentences.
  *
- * Strategy:
- *   1. Split the text on paragraph boundaries (double newlines).
- *   2. Walk through the paragraphs, accumulating them into a "window" until
- *      the window exceeds `chunkSize`.
- *   3. Emit the window as a chunk and start the next window with enough
- *      trailing content to provide `chunkOverlap` characters of overlap.
- *   4. If a single paragraph is longer than `chunkSize`, hard-split it at
- *      the character level so nothing is silently dropped.
+ * Uses a regex that handles common abbreviations reasonably well while
+ * splitting on `.` `!` `?` followed by whitespace or end-of-string.
+ * Falls back to newline-based splitting if no sentence-ending punctuation
+ * is found.
  *
- * @param text          The full text to chunk.
- * @param chunkSize     Target max characters per chunk.
- * @param chunkOverlap  Character overlap between adjacent chunks.
- * @returns             An array of chunk strings.
+ * @param text  The full text.
+ * @returns     An array of sentence strings (trimmed, non-empty).
  */
-function chunkText(
-  text: string,
-  chunkSize: number,
-  chunkOverlap: number
-): string[] {
-  /* Normalise whitespace and split on paragraph boundaries. */
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+function splitSentences(text: string): string[] {
+  /* Split on sentence-ending punctuation followed by whitespace / EOL. */
+  const raw = text.split(/(?<=[.!?])\s+/);
 
-  if (paragraphs.length === 0) return [];
+  const sentences = raw
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 
-  const chunks: string[] = [];
-  let window = "";
-
-  for (const para of paragraphs) {
-    /* If adding this paragraph stays within the limit, accumulate. */
-    if (window.length + (window.length > 0 ? 2 : 0) + para.length <= chunkSize) {
-      window += (window.length > 0 ? "\n\n" : "") + para;
-      continue;
-    }
-
-    /* If the window already has content, emit it before starting fresh. */
-    if (window.length > 0) {
-      chunks.push(window);
-      /* Start the next window with an overlap tail from the previous. */
-      const overlapStart = Math.max(0, window.length - chunkOverlap);
-      window = window.slice(overlapStart).trimStart();
-    }
-
-    /* Handle paragraphs that are themselves larger than the chunk size. */
-    if (para.length > chunkSize) {
-      let offset = 0;
-      while (offset < para.length) {
-        const slice = para.slice(offset, offset + chunkSize);
-        if (window.length > 0) {
-          chunks.push(window);
-          window = "";
-        }
-        chunks.push(slice);
-        offset += chunkSize - chunkOverlap;
-      }
-      /* Carry over the tail of the last hard-split slice as the new window. */
-      const lastChunk = chunks[chunks.length - 1];
-      window = lastChunk.slice(Math.max(0, lastChunk.length - chunkOverlap)).trimStart();
-      continue;
-    }
-
-    /* Begin a new window with the current paragraph. */
-    window += (window.length > 0 ? "\n\n" : "") + para;
+  /* If we only got 1 "sentence" the text may lack punctuation —
+     fall back to splitting on newlines. */
+  if (sentences.length <= 1) {
+    const byLine = text.split(/\n+/).map((s) => s.trim()).filter((s) => s.length > 0);
+    if (byLine.length > 1) return byLine;
   }
 
-  /* Flush any remaining content in the window. */
-  if (window.trim().length > 0) {
-    chunks.push(window.trim());
+  return sentences;
+}
+
+/**
+ * cosineSimilarity — computes the cosine similarity between two vectors.
+ *
+ * @param a  First vector (number[]).
+ * @param b  Second vector (number[], same length as a).
+ * @returns  A value between -1 and 1 (1 = identical direction).
+ */
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+/**
+ * embedBatched — embeds an array of texts in batches to stay within
+ * rate limits.
+ *
+ * @param texts      The texts to embed.
+ * @param batchSize  How many concurrent embed() calls per batch.
+ * @returns          An array of embedding vectors in the same order as texts.
+ */
+async function embedBatched(
+  texts: string[],
+  batchSize: number
+): Promise<number[][]> {
+  const embeddings: number[][] = [];
+
+  for (let i = 0; i < texts.length; i += batchSize) {
+    const batch = texts.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map((t) => embed(t)));
+    embeddings.push(...batchResults);
+  }
+
+  return embeddings;
+}
+
+/**
+ * semanticChunk — groups sentences into semantically coherent chunks.
+ *
+ * Algorithm:
+ *   1. Compute cosine similarity between each consecutive pair of sentence
+ *      embeddings.
+ *   2. Walk through the similarities and accumulate sentences. When
+ *      similarity drops below `threshold`, emit the current group as a
+ *      chunk and start a new one.
+ *   3. Enforce `minChunkSentences` — if a pending chunk is too small when
+ *      a boundary is detected, keep accumulating.
+ *   4. Enforce `maxChunkSentences` — if a chunk hits the max, force a
+ *      boundary even if similarity is still high.
+ *
+ * @param sentences   The sentence strings.
+ * @param embeddings  The corresponding embedding vectors.
+ * @param threshold   Similarity threshold for chunk boundaries.
+ * @param minSentences  Minimum sentences per chunk.
+ * @param maxSentences  Maximum sentences per chunk.
+ * @returns           An array of chunk strings (sentences joined by spaces).
+ */
+function semanticChunk(
+  sentences: string[],
+  embeddings: number[][],
+  threshold: number,
+  minSentences: number,
+  maxSentences: number
+): string[] {
+  if (sentences.length === 0) return [];
+  if (sentences.length === 1) return [sentences[0]];
+
+  const chunks: string[] = [];
+  let currentGroup: string[] = [sentences[0]];
+
+  for (let i = 1; i < sentences.length; i++) {
+    const sim = cosineSimilarity(embeddings[i - 1], embeddings[i]);
+    const atMax = currentGroup.length >= maxSentences;
+    const atMin = currentGroup.length >= minSentences;
+
+    /* Place a boundary if similarity dips below threshold (and we have
+       enough sentences), OR if we've hit the max chunk size. */
+    if ((sim < threshold && atMin) || atMax) {
+      chunks.push(currentGroup.join(" "));
+      currentGroup = [];
+    }
+
+    currentGroup.push(sentences[i]);
+  }
+
+  /* Flush the last group. */
+  if (currentGroup.length > 0) {
+    chunks.push(currentGroup.join(" "));
   }
 
   return chunks;
 }
 
+/* ── Route handler ───────────────────────────────────────────── */
+
 /**
- * POST / — chunk a long text and bulk-upload all chunks.
+ * POST / — semantically chunk a long text and upload every chunk.
  *
  * @input  { text: string, speaker?: string, source?: string,
- *           chunkSize?: number, chunkOverlap?: number }
+ *           threshold?: number, minChunkSentences?: number,
+ *           maxChunkSentences?: number }
  * @output { success: true, totalChunks: number, ids: string[] }
  *       | { error: string }
  */
@@ -135,8 +213,9 @@ long.post("/", async (c) => {
       text?: string;
       speaker?: string;
       source?: string;
-      chunkSize?: number;
-      chunkOverlap?: number;
+      threshold?: number;
+      minChunkSentences?: number;
+      maxChunkSentences?: number;
     }>();
 
     /* ── Validate ──────────────────────────────────────────── */
@@ -150,72 +229,59 @@ long.post("/", async (c) => {
     const text = body.text.trim();
     const speaker = body.speaker?.trim() || null;
     const source = body.source?.trim() || "transcript";
-    const chunkSize = body.chunkSize ?? DEFAULT_CHUNK_SIZE;
-    const chunkOverlap = body.chunkOverlap ?? DEFAULT_CHUNK_OVERLAP;
+    const threshold = body.threshold ?? DEFAULT_THRESHOLD;
+    const minSentences = body.minChunkSentences ?? DEFAULT_MIN_CHUNK_SENTENCES;
+    const maxSentences = body.maxChunkSentences ?? DEFAULT_MAX_CHUNK_SENTENCES;
 
-    if (chunkOverlap >= chunkSize) {
+    /* ── Split into sentences ──────────────────────────────── */
+    const sentences = splitSentences(text);
+
+    if (sentences.length === 0) {
       return c.json(
-        { error: '"chunkOverlap" must be less than "chunkSize".' },
-        400
-      );
-    }
-
-    /* ── Chunk ─────────────────────────────────────────────── */
-    const chunks = chunkText(text, chunkSize, chunkOverlap);
-
-    if (chunks.length === 0) {
-      return c.json(
-        { error: "Text produced no usable chunks after splitting." },
+        { error: "Text produced no usable sentences after splitting." },
         400
       );
     }
 
     console.log(
-      `📝 Long upload: ${text.length} chars → ${chunks.length} chunks ` +
-        `(target ${chunkSize}, overlap ${chunkOverlap})`
+      `📝 Long upload: ${text.length} chars → ${sentences.length} sentences ` +
+        `(threshold ${threshold}, min ${minSentences}, max ${maxSentences})`
     );
 
-    /* ── Embed all chunks (parallel, batched by 5 to respect rate limits) ── */
-    const BATCH_SIZE = 5;
-    const embeddings: number[][] = [];
+    /* ── Embed every sentence ──────────────────────────────── */
+    const sentenceEmbeddings = await embedBatched(sentences, EMBED_BATCH_SIZE);
 
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-      const batch = chunks.slice(i, i + BATCH_SIZE);
-      const batchEmbeddings = await Promise.all(batch.map((ch) => embed(ch)));
-      embeddings.push(...batchEmbeddings);
-    }
+    /* ── Semantic chunking ─────────────────────────────────── */
+    const chunks = semanticChunk(
+      sentences,
+      sentenceEmbeddings,
+      threshold,
+      minSentences,
+      maxSentences
+    );
 
-    /* ── Bulk-index into Elasticsearch ─────────────────────── */
-    const now = new Date().toISOString();
-    const bulkBody = chunks.flatMap((chunk, idx) => [
-      { index: { _index: INDEX_NAME } },
-      {
-        content: chunk,
-        speaker,
-        source,
-        embedding: embeddings[idx],
-        created_at: now,
-      },
-    ]);
+    console.log(
+      `✂️  Semantic chunking produced ${chunks.length} chunks from ` +
+        `${sentences.length} sentences`
+    );
 
-    const bulkResult = await esClient.bulk({ body: bulkBody });
-
-    /* Collect the IDs from the bulk response. */
+    /* ── Upload each chunk via the shared helper ───────────── */
     const ids: string[] = [];
     const errors: string[] = [];
 
-    for (const item of bulkResult.items) {
-      if (item.index?.error) {
-        errors.push(
-          `Chunk failed: ${item.index.error.reason ?? "unknown error"}`
-        );
-      } else if (item.index?._id) {
-        ids.push(item.index._id);
+    for (let i = 0; i < chunks.length; i++) {
+      try {
+        const { id } = await uploadChunk(chunks[i], speaker, source);
+        ids.push(id);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "unknown error";
+        errors.push(`Chunk ${i + 1} failed: ${msg}`);
+        console.error(`Chunk ${i + 1} upload error:`, err);
       }
     }
 
     if (errors.length > 0) {
-      console.error("Bulk index errors:", errors);
+      console.error("Some chunks failed to upload:", errors);
     }
 
     return c.json({

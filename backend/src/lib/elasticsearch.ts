@@ -12,6 +12,12 @@
  *   - embedding  (dense_vector) — 1536-dim OpenAI cosine vector
  *   - created_at (date)         — when the chunk was indexed
  *
+ * Exports:
+ *   - esClient     — the singleton client
+ *   - INDEX_NAME   — the index name ("person-context")
+ *   - ensureIndex  — creates the index on first boot
+ *   - getAllDocuments — retrieves all stored documents (no embeddings)
+ *
  * Used by: routes/upload.ts, routes/generate.ts, index.ts (bootstrap)
  *
  * Requires env vars:
@@ -82,4 +88,41 @@ export async function ensureIndex(): Promise<void> {
   });
 
   console.log(`🆕 Created Elasticsearch index "${INDEX_NAME}".`);
+}
+
+/** Shape of a document returned by getAllDocuments (no embedding). */
+export interface StoredDocument {
+  id: string;
+  content: string;
+  speaker: string | null;
+  source: string | null;
+  created_at: string;
+}
+
+/**
+ * getAllDocuments — retrieves all documents from the index, newest-first.
+ *
+ * Returns content + metadata but excludes the raw embedding vectors to
+ * keep payloads small. Useful for browsing / displaying stored data.
+ *
+ * @param size  Maximum number of documents to return (default 100).
+ * @returns     { total: number | object, documents: StoredDocument[] }
+ */
+export async function getAllDocuments(size = 100): Promise<{
+  total: number | object;
+  documents: StoredDocument[];
+}> {
+  const result = await esClient.search({
+    index: INDEX_NAME,
+    size,
+    _source: ["content", "speaker", "source", "created_at"],
+    sort: [{ created_at: "desc" }],
+  });
+
+  const documents: StoredDocument[] = result.hits.hits.map((hit) => {
+    const src = hit._source as Omit<StoredDocument, "id">;
+    return { id: hit._id!, ...src };
+  });
+
+  return { total: result.hits.total!, documents };
 }
