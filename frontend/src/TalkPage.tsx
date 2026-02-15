@@ -6,8 +6,7 @@ import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 import { useRealtimeTranscription } from './useRealtimeTranscription'
 import { DiarizationPanel } from './DiarizationPanel'
 import type { Utterance } from './types'
-
-const API_BASE = 'http://localhost:3003'
+import { API_BASE, PERSON } from './config'
 
 type TalkState =
   | 'IDLE'
@@ -76,6 +75,7 @@ export default function TalkPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             app: 'Talk',
+            person: PERSON,
             text: JSON.stringify({
               transcript,
               selectedSpeaker: speakerNum,

@@ -311,6 +311,93 @@ Example format:
     },
   },
 
+  maps: {
+    label: "Maps",
+    maxTokens: 1024,
+
+    buildPrompt(chunks: ContextChunk[], text?: string): string {
+      const contextBlock =
+        chunks.length > 0
+          ? chunks
+              .map(
+                (c, i) =>
+                  `[${i + 1}] ${c.speaker ? `(${c.speaker}) ` : ""}${c.content}`
+              )
+              .join("\n")
+          : "(No relevant context found.)";
+
+      const locationLine = text
+        ? `The user's current location is: ${text}. Prioritize suggestions near this area, but also include some based purely on their interests.`
+        : "No location provided. Generate place suggestions based purely on the person's interests and context.";
+
+      return `You are a personalized place recommendation engine for Google Maps. You have access to personal context about a user — their interests, conversations, habits, and preferences. Use this context to generate Google Maps search queries for places they would genuinely want to visit.
+
+Personal context:
+${contextBlock}
+
+${locationLine}
+
+Instructions:
+- Generate exactly 12 place search queries.
+- Each query should work well as a Google Maps search (e.g. "best ramen near Capitol Hill", "hiking trails near me", "cozy coffee shops downtown").
+- If location is provided, make most queries location-aware.
+- Ground every query in something from the context — don't generate generic tourist suggestions.
+- Mix types: restaurants, activities, shops, nature, services — whatever fits the person.
+- Return ONLY a JSON array of 12 strings. No descriptions, no objects, no extra text, no markdown fences, no explanation.
+
+Example format:
+["best ramen near Capitol Hill Seattle","rock climbing gyms nearby","vintage bookstores downtown","hiking trails with views near Seattle"]`;
+    },
+    buildUserMessage(text?: string): string {
+      return text
+        ? `Generate place suggestions near: ${text}`
+        : "Generate place suggestions based on my context.";
+    },
+  },
+
+  books: {
+    label: "Books",
+    maxTokens: 1024,
+
+    buildPrompt(chunks: ContextChunk[], text?: string): string {
+      const contextBlock =
+        chunks.length > 0
+          ? chunks
+              .map(
+                (c, i) =>
+                  `[${i + 1}] ${c.speaker ? `(${c.speaker}) ` : ""}${c.content}`
+              )
+              .join("\n")
+          : "(No relevant context found.)";
+
+      const focusLine = text
+        ? `The user is specifically interested in: "${text}". Focus book recommendations around this topic.`
+        : "Generate broad book recommendations based on the person's interests, conversations, and context.";
+
+      return `You are a personalized book recommendation engine. You have access to personal context about a user — their interests, conversations, habits, and preferences. Use this context to suggest books they would genuinely enjoy.
+
+Personal context:
+${contextBlock}
+
+${focusLine}
+
+Instructions:
+- Generate exactly 10 book recommendations.
+- Each should be a real book title and author in the format "Title by Author".
+- Ground every recommendation in something from the context — don't suggest generic bestsellers.
+- Mix genres: fiction, non-fiction, self-help, technical, etc. — whatever fits the person.
+- Return ONLY a JSON array of 10 strings. No descriptions, no objects, no extra text, no markdown fences, no explanation.
+
+Example format:
+["The Art of Fermentation by Sandor Katz","Born to Run by Christopher McDougall","Designing Data-Intensive Applications by Martin Kleppmann"]`;
+    },
+    buildUserMessage(text?: string): string {
+      return text
+        ? `Generate book recommendations focused on: ${text}`
+        : "Generate book recommendations based on my context.";
+    },
+  },
+
   chat: {
     label: "Chat",
     maxTokens: 1024,

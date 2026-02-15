@@ -3,9 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaArrowLeft, FaPaperPlane } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
-
-const API_BASE = 'http://localhost:3003'
-const PERSON = (import.meta.env.VITE_PERSON ?? 'ian').trim().toLowerCase()
+import { API_BASE, PERSON } from './config'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -37,8 +35,8 @@ export default function ChatPage() {
         return
       }
 
-      // Suggestion navigation mode (when suggestions visible and no messages yet)
-      if (suggestions.length > 0 && messages.length === 0) {
+      // Suggestion navigation mode (when suggestions are visible)
+      if (suggestions.length > 0) {
         if (type === 'wink-right') {
           setHighlightedIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
         } else if (type === 'wink-left') {
@@ -78,30 +76,32 @@ export default function ChatPage() {
     inputRef.current?.focus()
   }, [])
 
-  // Fetch initial suggestions from getContext
-  useEffect(() => {
-    let cancelled = false
-    async function fetchSuggestions() {
-      try {
-        const res = await fetch(`${API_BASE}/getContext`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ app: 'chat', person: PERSON, k: 5 }),
-        })
-        if (!res.ok) throw new Error('Failed')
-        const data = await res.json()
-        if (!cancelled && Array.isArray(data.result)) {
-          setSuggestions(data.result)
-        }
-      } catch {
-        // Silently fail — suggestions are optional
-      } finally {
-        if (!cancelled) setSuggestionsLoading(false)
+  // Reusable function to fetch suggestions from getContext
+  const fetchSuggestions = useCallback(async (contextText?: string) => {
+    setSuggestionsLoading(true)
+    setHighlightedIdx(0)
+    try {
+      const res = await fetch(`${API_BASE}/getContext`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app: 'chat', person: PERSON, k: 5, ...(contextText ? { text: contextText } : {}) }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      const data = await res.json()
+      if (Array.isArray(data.result)) {
+        setSuggestions(data.result)
       }
+    } catch {
+      // Silently fail — suggestions are optional
+    } finally {
+      setSuggestionsLoading(false)
     }
-    fetchSuggestions()
-    return () => { cancelled = true }
   }, [])
+
+  // Fetch initial suggestions on mount
+  useEffect(() => {
+    fetchSuggestions()
+  }, [fetchSuggestions])
 
   const handleSend = async () => {
     const text = input.trim()
@@ -184,6 +184,15 @@ export default function ChatPage() {
 
     setIsStreaming(false)
     inputRef.current?.focus()
+
+    // Fetch new follow-up suggestions based on the last assistant response
+    setMessages((prev) => {
+      const lastAssistant = [...prev].reverse().find((m) => m.role === 'assistant')
+      if (lastAssistant?.content) {
+        fetchSuggestions(lastAssistant.content)
+      }
+      return prev
+    })
   }
 
   // Keep ref in sync so blink handler can call latest version
@@ -415,6 +424,77 @@ export default function ChatPage() {
             </div>
           </div>
         ))}
+        {/* Follow-up suggestion chips (after messages) */}
+        {messages.length > 0 && suggestions.length > 0 && !isStreaming && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              padding: '12px 24px',
+              maxWidth: 720,
+              margin: '0 auto',
+              width: '100%',
+            }}
+          >
+            <div style={{ width: '100%', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>
+              Suggested follow-ups
+            </div>
+            {suggestions.map((s, i) => {
+              const isHighlighted = i === highlightedIdx
+              return (
+                <button
+                  key={i}
+                  onClick={() => handleSuggestionClick(s)}
+                  style={{
+                    background: isHighlighted ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.06)',
+                    border: isHighlighted
+                      ? '1px solid rgba(99, 102, 241, 0.5)'
+                      : '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 12,
+                    color: isHighlighted ? '#fff' : 'rgba(255,255,255,0.7)',
+                    padding: '8px 14px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    fontFamily: 'inherit',
+                    maxWidth: 300,
+                    textAlign: 'left',
+                    lineHeight: 1.4,
+                    boxShadow: isHighlighted ? '0 0 12px rgba(99, 102, 241, 0.3)' : 'none',
+                    transform: isHighlighted ? 'scale(1.05)' : 'scale(1)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)'
+                    e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)'
+                    e.currentTarget.style.color = '#fff'
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isHighlighted) {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                      e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+                    } else {
+                      e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'
+                      e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)'
+                      e.currentTarget.style.color = '#fff'
+                    }
+                  }}
+                >
+                  {s}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Loading indicator for follow-up suggestions */}
+        {messages.length > 0 && suggestionsLoading && !isStreaming && (
+          <div style={{ padding: '12px 24px', maxWidth: 720, margin: '0 auto', width: '100%' }}>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>Loading follow-up suggestions...</div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
