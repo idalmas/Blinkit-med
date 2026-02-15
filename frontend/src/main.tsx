@@ -9,6 +9,7 @@ import ChatPage from './ChatPage.tsx'
 import WebSearchPage from './WebSearchPage.tsx'
 import FlappyBirdPage from './FlappyBirdPage.tsx'
 import BooksPage from './BooksPage.tsx'
+import TalkPage from './TalkPage.tsx'
 import Navbar from './Navbar.tsx'
 
 createRoot(document.getElementById('root')!).render(
@@ -24,6 +25,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/apps/web-search" element={<WebSearchPage />} />
         <Route path="/apps/flappy-bird" element={<FlappyBirdPage />} />
         <Route path="/apps/books" element={<BooksPage />} />
+        <Route path="/apps/talk" element={<TalkPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,
