@@ -2,7 +2,8 @@
  * AppsPage — App launcher grid with blink-based navigation.
  *
  * Displays all available apps (Amazon, Maps, ChatGPT, Web Search, Flappy Bird,
- * Books) as a card grid. Users can navigate entirely hands-free:
+ * Books, Talk, Subway Surfers) as a card grid. Each card shows an icon and name
+ * (no description subtitles — keeps the UI clean). Users navigate hands-free:
  *
  *   - wink-left  → move highlight to the previous app card
  *   - wink-right → move highlight to the next app card
@@ -15,6 +16,10 @@
  * A small webcam preview + blink-status badge sits in the bottom-right corner
  * (same placement as every other blink-enabled page for consistency).
  *
+ * Fonts: Headings, subtitle, and card names use the Geist font (loaded via
+ * Google Fonts in index.html) with a system-ui fallback. Body/hint text uses
+ * the default system font stack.
+ *
  * Parent: mounted by src/main.tsx at /apps
  * Children: none (navigates to individual app pages)
  * Dependencies: useBlinkDetection (blink/wink hook), react-webcam, react-icons
@@ -25,6 +30,7 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaAmazon, FaMapMarkerAlt, FaComments, FaSearch, FaDove, FaBook, FaMicrophone, FaRunning } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import Header from './Header'
 
 /** Describes a single app card in the launcher grid. */
 interface AppCard {
@@ -185,43 +191,20 @@ export default function AppsPage() {
         }}
       />
 
-      <h1
+      <Header hint="Wink left/right to browse · Double-blink to open" />
+
+      <h2
         style={{
           color: '#fff',
           fontSize: 36,
           fontWeight: 700,
-          marginBottom: 8,
+          marginBottom: 40,
           letterSpacing: '-1px',
           fontFamily: '"Geist", system-ui, -apple-system, sans-serif',
         }}
       >
         Apps
-      </h1>
-      <p
-        style={{
-          color: 'rgba(255,255,255,0.4)',
-          fontSize: 16,
-          marginBottom: 16,
-          marginTop: 0,
-          fontFamily: '"Geist", system-ui, -apple-system, sans-serif',
-        }}
-      >
-        Connect with your favorite platforms
-      </p>
-
-      {/* Blink navigation hint */}
-      <p
-        style={{
-          color: 'rgba(255,255,255,0.25)',
-          fontSize: 13,
-          marginBottom: 48,
-          marginTop: 0,
-          textAlign: 'center',
-          lineHeight: 1.6,
-        }}
-      >
-        Wink left/right to browse &middot; Double-blink to open
-      </p>
+      </h2>
 
       <div
         style={{
