@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Webcam from 'react-webcam'
 import { FaArrowLeft, FaPaperPlane } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
 const API_BASE = 'http://localhost:3003'
+const PERSON = (import.meta.env.VITE_PERSON ?? 'ian').trim().toLowerCase()
 
 interface Message {
   role: 'user' | 'assistant'
@@ -16,7 +18,11 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const handleSendRef = useRef<() => void>(() => {})
 
   const handleBlink = useCallback(
     (type: BlinkType) => {
@@ -24,11 +30,18 @@ export default function ChatPage() {
         navigate('/apps')
         return
       }
+      if (type === 'wink-left') {
+        messagesContainerRef.current?.scrollBy({ top: -300, behavior: 'smooth' })
+      } else if (type === 'wink-right') {
+        messagesContainerRef.current?.scrollBy({ top: 300, behavior: 'smooth' })
+      } else if (type === 'double') {
+        handleSendRef.current()
+      }
     },
     [navigate]
   )
 
-  useBlinkDetection({ onBlink: handleBlink })
+  const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -42,10 +55,36 @@ export default function ChatPage() {
     inputRef.current?.focus()
   }, [])
 
+  // Fetch initial suggestions from getContext
+  useEffect(() => {
+    let cancelled = false
+    async function fetchSuggestions() {
+      try {
+        const res = await fetch(`${API_BASE}/getContext`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app: 'chat', person: PERSON, k: 5 }),
+        })
+        if (!res.ok) throw new Error('Failed')
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data.result)) {
+          setSuggestions(data.result)
+        }
+      } catch {
+        // Silently fail — suggestions are optional
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false)
+      }
+    }
+    fetchSuggestions()
+    return () => { cancelled = true }
+  }, [])
+
   const handleSend = async () => {
     const text = input.trim()
     if (!text || isStreaming) return
 
+    setSuggestions([]) // Hide suggestions once user sends a message
     const userMsg: Message = { role: 'user', content: text }
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
@@ -124,6 +163,17 @@ export default function ChatPage() {
     inputRef.current?.focus()
   }
 
+  // Keep ref in sync so blink handler can call latest version
+  handleSendRef.current = handleSend
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setInput(suggestion)
+    // Auto-send after a tick so the input state updates
+    setTimeout(() => {
+      handleSendRef.current()
+    }, 0)
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -183,6 +233,7 @@ export default function ChatPage() {
 
       {/* Messages area */}
       <div
+        ref={messagesContainerRef}
         style={{
           flex: 1,
           overflow: 'auto',
@@ -211,7 +262,56 @@ export default function ChatPage() {
               </svg>
             </div>
             <div style={{ fontSize: 18, fontWeight: 500 }}>Start a conversation</div>
-            <div style={{ fontSize: 14 }}>Type a message below to chat with GPT</div>
+            <div style={{ fontSize: 14 }}>
+              {suggestionsLoading ? 'Loading suggestions...' : 'Pick a suggestion or type a message'}
+            </div>
+
+            {/* Suggestion chips */}
+            {suggestions.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  justifyContent: 'center',
+                  maxWidth: 640,
+                  marginTop: 16,
+                }}
+              >
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSuggestionClick(s)}
+                    style={{
+                      background: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: 12,
+                      color: 'rgba(255,255,255,0.7)',
+                      padding: '10px 16px',
+                      fontSize: 13,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      fontFamily: 'inherit',
+                      maxWidth: 300,
+                      textAlign: 'left',
+                      lineHeight: 1.4,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)'
+                      e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)'
+                      e.currentTarget.style.color = '#fff'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                      e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -353,6 +453,46 @@ export default function ChatPage() {
           >
             <FaPaperPlane size={16} />
           </button>
+        </div>
+        <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'center', margin: '8px 0 0' }}>
+          Wink to scroll &middot; Double-blink to send &middot; Triple-blink to go back
+        </p>
+      </div>
+
+      {/* Webcam preview */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 20,
+          right: 20,
+          width: 160,
+          height: 120,
+          borderRadius: 12,
+          overflow: 'hidden',
+          border: '2px solid rgba(255,255,255,0.15)',
+          zIndex: 10,
+        }}
+      >
+        <Webcam
+          ref={webcamRef}
+          audio={false}
+          videoConstraints={{ facingMode: 'user', width: 640, height: 480 }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          mirrored
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 4,
+            left: 4,
+            fontSize: 10,
+            color: blinkStatus === 'detecting' ? '#4ade80' : 'rgba(255,255,255,0.5)',
+            background: 'rgba(0,0,0,0.6)',
+            padding: '2px 6px',
+            borderRadius: 4,
+          }}
+        >
+          {blinkStatus === 'loading' ? 'Loading...' : blinkStatus === 'detecting' ? 'Blink active' : blinkStatus}
         </div>
       </div>
 
