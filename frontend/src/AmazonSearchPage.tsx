@@ -187,12 +187,12 @@ export default function AmazonSearchPage() {
    *
    * Suggestion mode:
    *   - wink-left / wink-right → move highlight left / right
-   *   - triple blink → select highlighted suggestion (triggers search)
+   *   - double blink → select highlighted suggestion (triggers search)
    *
    * Product carousel mode:
    *   - wink-left / wink-right → scroll cards
-   *   - double blink → select / deselect card
-   *   - triple blink → email selected product
+   *   - double blink → email current product
+   *   - triple blink → go back (clear products, return to search)
    */
   const handleBlink = useCallback(
     (type: BlinkType) => {
@@ -208,9 +208,7 @@ export default function AmazonSearchPage() {
           setHighlightedSuggestionIdx((prev) => Math.min(prev + 1, suggestions.length - 1))
         } else if (type === 'wink-left') {
           setHighlightedSuggestionIdx((prev) => Math.max(prev - 1, 0))
-        } else if (type === 'triple') {
-          // Read highlighted index from ref (not inside a setState updater)
-          // to avoid side-effects inside a state update.
+        } else if (type === 'double') {
           const idx = highlightedIdxRef.current
           if (idx >= 0 && idx < suggestions.length) {
             suggestionClickRef.current(suggestions[idx])
@@ -222,16 +220,19 @@ export default function AmazonSearchPage() {
       // ── Product carousel mode ──
       if (products.length === 0) return
       if (type === 'double') {
-        setSelectedOrigIdx((prev) => (prev === centerIdx ? null : centerIdx))
-      } else if (type === 'triple' && selectedOrigIdx !== null) {
-        sendProductEmail(products[selectedOrigIdx])
+        sendProductEmail(products[centerIdx])
+      } else if (type === 'triple') {
+        setProducts([])
+        setSelectedOrigIdx(null)
+        setCenterIdx(0)
+        setStatus('idle')
       } else if (type === 'wink-left') {
         setCenterIdx((prev) => ((prev - 1) + products.length) % products.length)
       } else if (type === 'wink-right') {
         setCenterIdx((prev) => (prev + 1) % products.length)
       }
     },
-    [centerIdx, products, selectedOrigIdx, sendProductEmail, suggestions, status]
+    [centerIdx, products, sendProductEmail, suggestions, status]
   )
 
   const { webcamRef, status: blinkStatus } = useBlinkDetection({ onBlink: handleBlink })

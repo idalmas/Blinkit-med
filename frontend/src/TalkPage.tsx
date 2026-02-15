@@ -154,7 +154,7 @@ export default function TalkPage() {
 
       switch (talkState) {
         case 'IDLE':
-          if (type === 'double' || type === 'triple') {
+          if (type === 'double') {
             if (utterances.length === 0) {
               setError('No conversation detected yet.')
               setTimeout(() => setError(null), 2000)
