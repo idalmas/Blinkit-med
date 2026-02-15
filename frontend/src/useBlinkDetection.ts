@@ -18,8 +18,11 @@ const EMA_ALPHA = 0.5            // smoothing factor (higher = more responsive)
 const MIN_WINK_FRAMES = 2        // require 2+ consecutive frames for stability
 const WINK_COOLDOWN_MS = 500     // cooldown between wink events
 
-// Long-close detection — both eyes closed for 3 seconds
-const LONG_CLOSE_MS = 3000
+// Long-close detection — both eyes closed for ~2.5 seconds
+// Uses smoothed scores + a grace period so momentary flickers don't reset the timer.
+const LONG_CLOSE_MS = 2500
+const LONG_CLOSE_THRESHOLD = 0.28   // lower than BLINK_THRESHOLD — relaxed lids hover lower
+const LONG_CLOSE_GRACE_MS = 300     // allow eyes to flicker open briefly without reset
 
 export type BlinkType = 'single' | 'double' | 'triple' | 'wink-left' | 'wink-right' | 'long-close'
 
@@ -50,9 +53,10 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
   const smoothLeftRef = useRef(0)
   const smoothRightRef = useRef(0)
 
-  // Long-close tracking
+  // Long-close tracking (with grace period for brief flickers)
   const eyesClosedSinceRef = useRef<number | null>(null)
   const longCloseFiredRef = useRef(false)
+  const eyesOpenedAtRef = useRef<number | null>(null)  // tracks start of a flicker
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'detecting' | 'error'>('loading')
 
@@ -154,8 +158,14 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
           }
           wasBlinkingRef.current = isClosed
 
-          // Long-close detection (both eyes shut for 3+ seconds)
-          if (isClosed) {
+          // Long-close detection — uses smoothed scores + grace period so brief
+          // flickers (noise, micro-movements) don't reset the timer.
+          const smoothAvg = (smoothLeftRef.current + smoothRightRef.current) / 2
+          const isLongClosed = smoothAvg > LONG_CLOSE_THRESHOLD
+
+          if (isLongClosed) {
+            // Eyes are (still) closed — clear any flicker tracker
+            eyesOpenedAtRef.current = null
             if (eyesClosedSinceRef.current === null) {
               eyesClosedSinceRef.current = now
               longCloseFiredRef.current = false
@@ -164,8 +174,18 @@ export function useBlinkDetection({ onBlink }: UseBlinkDetectionOptions = {}) {
               onBlinkRef.current?.('long-close', 1)
             }
           } else {
-            eyesClosedSinceRef.current = null
-            longCloseFiredRef.current = false
+            // Eyes opened — start grace window (or reset if grace expired)
+            if (eyesClosedSinceRef.current !== null) {
+              if (eyesOpenedAtRef.current === null) {
+                eyesOpenedAtRef.current = now   // start the grace clock
+              } else if ((now - eyesOpenedAtRef.current) > LONG_CLOSE_GRACE_MS) {
+                // Grace period exceeded — truly opened, reset everything
+                eyesClosedSinceRef.current = null
+                longCloseFiredRef.current = false
+                eyesOpenedAtRef.current = null
+              }
+              // else: still within grace window, keep timer running
+            }
           }
 
           // Wink detection with EMA smoothing + relative difference
