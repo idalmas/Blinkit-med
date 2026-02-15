@@ -1,129 +1,20 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FaArrowLeft, FaMicrophone, FaPlay, FaSpinner, FaCheckCircle, FaStop } from 'react-icons/fa'
+import { FaArrowLeft, FaPlay, FaSpinner } from 'react-icons/fa'
 
 const API_BASE = 'http://localhost:3003'
-
-const RECORD_DURATION = 20
-
-const READING_PROMPT =
-  'The quick brown fox jumps over the lazy dog. ' +
-  'She sells seashells by the seashore. ' +
-  'How vexingly quick daft zebras jump. ' +
-  'Pack my box with five dozen liquor jugs. ' +
-  'A wizard\'s job is to vex chumps quickly in fog. ' +
-  'The five boxing wizards jump quickly at dawn. ' +
-  'Bright vixens jump, dozy fowl quack. ' +
-  'Jinxed wizards pluck ivy from the big quilt.'
 
 export default function TalkPage() {
   const navigate = useNavigate()
 
-  // Recording state
-  const [recording, setRecording] = useState(false)
-  const duration = RECORD_DURATION
-  const [secondsLeft, setSecondsLeft] = useState(0)
-  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Voice cloning state
-  const [modelId, setModelId] = useState<string | null>(null)
-  const [cloning, setCloning] = useState(false)
-  const [cloneError, setCloneError] = useState<string | null>(null)
-
-  // TTS state
   const [text, setText] = useState('')
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
 
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
-    }
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
-    setRecording(false)
-    setSecondsLeft(0)
-  }, [])
-
-  async function startRecording() {
-    setRecordedBlob(null)
-    setModelId(null)
-    setCloneError(null)
-    chunksRef.current = []
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-      mediaRecorderRef.current = mr
-
-      mr.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
-      }
-
-      mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        setRecordedBlob(blob)
-        stream.getTracks().forEach((t) => t.stop())
-      }
-
-      mr.start()
-      setRecording(true)
-      setSecondsLeft(duration)
-
-      // Countdown
-      const start = Date.now()
-      timerRef.current = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - start) / 1000)
-        const remaining = duration - elapsed
-        if (remaining <= 0) {
-          stopRecording()
-        } else {
-          setSecondsLeft(remaining)
-        }
-      }, 250)
-    } catch {
-      setCloneError('Microphone access denied. Please allow microphone permissions.')
-    }
-  }
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop()
-      }
-    }
-  }, [])
-
-  async function handleClone() {
-    if (!recordedBlob) return
-    setCloning(true)
-    setCloneError(null)
-    try {
-      const form = new FormData()
-      form.append('audio', recordedBlob, 'recording.webm')
-      form.append('title', 'Voice Recording')
-      const res = await fetch(`${API_BASE}/apps/talk/clone`, { method: 'POST', body: form })
-      if (!res.ok) throw new Error('Cloning failed')
-      const data = await res.json()
-      setModelId(data.modelId)
-    } catch {
-      setCloneError('Voice cloning failed. Try recording again.')
-    } finally {
-      setCloning(false)
-    }
-  }
-
   async function handleGenerate() {
-    if (!text.trim() || !modelId) return
+    if (!text.trim()) return
     setGenerating(true)
     setGenError(null)
     if (audioUrl) {
@@ -134,7 +25,7 @@ export default function TalkPage() {
       const res = await fetch(`${API_BASE}/apps/talk/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, referenceId: modelId }),
+        body: JSON.stringify({ text }),
       })
       if (!res.ok) throw new Error('Generation failed')
       const blob = await res.blob()
@@ -208,13 +99,12 @@ export default function TalkPage() {
         Talk
       </h1>
       <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15, margin: '0 0 48px' }}>
-        Clone a voice, then make it say anything
+        Type anything and hear it spoken
       </p>
 
       {/* Card container */}
       <div style={{ width: '100%', maxWidth: 520, padding: '0 24px', display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 48 }}>
 
-        {/* Step 1: Record voice */}
         <div
           style={{
             background: 'rgba(255,255,255,0.04)',
@@ -224,132 +114,13 @@ export default function TalkPage() {
           }}
         >
           <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 16 }}>
-            Step 1 — Record Your Voice
-          </div>
-
-          {/* Reading prompt */}
-          <div
-            style={{
-              background: 'rgba(139, 92, 246, 0.08)',
-              border: '1px solid rgba(139, 92, 246, 0.2)',
-              borderRadius: 12,
-              padding: '16px 18px',
-              marginBottom: 20,
-            }}
-          >
-            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>
-              Read this aloud:
-            </div>
-            <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 15, lineHeight: 1.6, fontStyle: 'italic' }}>
-              "{READING_PROMPT}"
-            </div>
-          </div>
-
-          {/* Record / Stop button */}
-          {!recordedBlob || recording ? (
-            <button
-              onClick={recording ? stopRecording : startRecording}
-              style={{
-                ...buttonBase,
-                width: '100%',
-                justifyContent: 'center',
-                background: recording
-                  ? 'linear-gradient(135deg, #EF4444, #F87171)'
-                  : 'linear-gradient(135deg, #8B5CF6, #A78BFA)',
-              }}
-            >
-              {recording ? (
-                <>
-                  <FaStop size={14} />
-                  <span>Stop Recording ({secondsLeft}s left)</span>
-                </>
-              ) : (
-                <>
-                  <FaMicrophone size={14} />
-                  <span>Start Recording</span>
-                </>
-              )}
-            </button>
-          ) : (
-            /* After recording: show playback + clone */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <audio
-                  src={URL.createObjectURL(recordedBlob)}
-                  controls
-                  style={{ flex: 1, height: 36, borderRadius: 8 }}
-                />
-                <button
-                  onClick={() => {
-                    setRecordedBlob(null)
-                    setModelId(null)
-                  }}
-                  style={{
-                    background: 'rgba(255,255,255,0.08)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 10,
-                    color: 'rgba(255,255,255,0.6)',
-                    padding: '8px 14px',
-                    cursor: 'pointer',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Re-record
-                </button>
-              </div>
-
-              {!modelId && (
-                <button
-                  onClick={handleClone}
-                  disabled={cloning}
-                  style={{
-                    ...buttonBase,
-                    width: '100%',
-                    justifyContent: 'center',
-                    background: cloning ? 'rgba(139, 92, 246, 0.3)' : 'linear-gradient(135deg, #8B5CF6, #A78BFA)',
-                    opacity: cloning ? 0.7 : 1,
-                  }}
-                >
-                  {cloning ? <><FaSpinner size={14} className="spin" /> Cloning Voice...</> : <><FaMicrophone size={14} /> Clone Voice</>}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Success indicator */}
-          {modelId && (
-            <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8, color: '#34d399', fontSize: 14, fontWeight: 500 }}>
-              <FaCheckCircle size={14} /> Voice cloned successfully
-            </div>
-          )}
-
-          {cloneError && (
-            <div style={{ marginTop: 12, color: '#f87171', fontSize: 13 }}>{cloneError}</div>
-          )}
-        </div>
-
-        {/* Step 2: Generate speech */}
-        <div
-          style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 20,
-            padding: 28,
-            opacity: modelId ? 1 : 0.4,
-            pointerEvents: modelId ? 'auto' : 'none',
-            transition: 'opacity 0.3s',
-          }}
-        >
-          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 16 }}>
-            Step 2 — Enter Text &amp; Generate
+            Enter Text &amp; Generate
           </div>
 
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Type what you want the cloned voice to say..."
+            placeholder="Type what you want to hear spoken..."
             rows={4}
             style={{
               width: '100%',
