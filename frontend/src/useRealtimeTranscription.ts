@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import type { Utterance } from './types';
+import { API_BASE } from './config';
 
 interface TranscriptMessage {
   type: 'transcript';
@@ -13,8 +14,6 @@ interface TranscriptMessage {
   }>;
   is_final: boolean;
 }
-
-const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim();
 
 /**
  * toWebSocketUrl — convert HTTP(S) API base URL to WS(S) URL for realtime streams.
