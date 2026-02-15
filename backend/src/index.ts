@@ -40,6 +40,7 @@ import apps from "./routes/apps";
 
 const app = new Hono();
 const { upgradeWebSocket, websocket } = createBunWebSocket();
+const signalClients = new Set<any>();
 
 /* ── Middleware ──────────────────────────────────────────────── */
 
@@ -75,13 +76,34 @@ app.get(
   "/ws",
   upgradeWebSocket(() => ({
     onOpen(_, ws) {
+      signalClients.add(ws);
       ws.send(JSON.stringify({ type: "connected" }));
     },
-    onMessage() {
-      // Placeholder: audio frame processing will be added here.
+    onMessage(event, ws) {
+      try {
+        const raw = event.data;
+        if (typeof raw !== "string") return;
+        const data = JSON.parse(raw);
+        if (data.type === "signal") {
+          const payload = JSON.stringify(data);
+          // Fan out to all other connected clients.
+          for (const client of signalClients) {
+            if (client === ws) continue;
+            try {
+              client.send(payload);
+            } catch {
+              // Ignore send errors for stale sockets; onClose will prune.
+            }
+          }
+        } else if (data.type === "subscribe") {
+          ws.send(JSON.stringify({ type: "subscribed" }));
+        }
+      } catch {
+        // Ignore non-JSON/binary frames from other clients.
+      }
     },
-    onClose() {
-      // No-op.
+    onClose(_, ws) {
+      signalClients.delete(ws);
     },
   }))
 );
