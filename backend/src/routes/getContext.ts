@@ -306,6 +306,17 @@ Instructions:
 Example format:
 ["That sounds great, let's do it","I'm not sure about that","Can you tell me more?","I was actually thinking about something else","Yeah, I agree completely","What time works for you?"]`;
     },
+    /**
+     * Talk user message — asks for short conversational response options.
+     *
+     * @param text  Optional serialized transcript payload.
+     * @returns     User message string.
+     */
+    buildUserMessage(text?: string): string {
+      return text
+        ? "Generate reply options based on this conversation context."
+        : "Generate reply options based on the current conversation.";
+    },
   },
 };
 
@@ -458,15 +469,6 @@ getContext.post("/", async (c) => {
     const systemPrompt = config.buildPrompt(context, text);
 
     const userMessage = config.buildUserMessage(text);
-    let userMessage: string;
-    if (appKey === "talk") {
-      userMessage =
-        "Generate conversational response options based on the transcript.";
-    } else {
-      userMessage = text
-        ? `Generate product ideas focused on: ${text}`
-        : "Generate product ideas based on my context.";
-    }
 
     const dialog: DialogMessage[] = [{ role: "user", content: userMessage }];
 
