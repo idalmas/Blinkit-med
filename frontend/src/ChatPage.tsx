@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FaArrowLeft, FaPaperPlane } from 'react-icons/fa'
 
-const API_BASE = 'http://localhost:3003'
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
 
 interface Message {
   role: 'user' | 'assistant'

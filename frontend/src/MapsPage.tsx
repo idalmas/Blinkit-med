@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FaMapMarkerAlt, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch, FaPhone, FaGlobe } from 'react-icons/fa'
 
-const API_BASE = 'http://localhost:3003'
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:3001').trim()
 const POLL_INTERVAL = 3000
 
 interface MapsPlace {
