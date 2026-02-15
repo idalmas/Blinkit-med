@@ -254,6 +254,64 @@ Example format:
     },
   },
 
+  chat: {
+    label: "Chat",
+    maxTokens: 1024,
+
+    buildPrompt(chunks: ContextChunk[], text?: string): string {
+      const contextBlock =
+        chunks.length > 0
+          ? chunks
+              .map(
+                (c, i) =>
+                  `[${i + 1}] ${c.speaker ? `(${c.speaker}) ` : ""}${c.content}`
+              )
+              .join("\n")
+          : "(No relevant context found.)";
+
+      const focusLine = text
+        ? `The user just received this response from ChatGPT: "${text}". Generate follow-up messages the user would type next to continue or deepen the conversation.`
+        : "Generate messages the user would type into ChatGPT based on their interests and life context.";
+
+      return `You are generating suggested messages that a user would TYPE INTO ChatGPT. These are things the user wants to SAY TO the AI, not things the AI says to the user.
+
+You have personal context about this user — their interests, conversations, habits, and preferences. Use it to generate messages they'd actually want to send to ChatGPT.
+
+Personal context:
+${contextBlock}
+
+${focusLine}
+
+Instructions:
+- Generate exactly 8 messages that the user would type into ChatGPT's text input.
+- Write them in FIRST PERSON from the user's perspective — as if the user is typing them.
+- Each should be 5-20 words, phrased naturally as a request, question, or command to ChatGPT.
+- Ground every message in the user's personal context — don't generate generic prompts.
+- Mix types: some asking for help, some requesting explanations, some creative requests, some practical tasks.
+- Return ONLY a JSON array of 8 strings. No descriptions, no objects, no extra text, no markdown fences, no explanation.
+
+Example format:
+["Help me plan a weekend camping trip near Seattle","What's the best way to train for a half marathon?","Write me a meal plan for this week","Explain how noise-canceling headphones work"]`;
+    },
+
+    buildUserMessage(text?: string): string {
+      return text
+        ? `Generate messages the user would type as follow-ups after receiving: ${text}`
+        : "Generate messages the user would type into ChatGPT based on their context.";
+    },
+  },
+
+  chatgpt: {
+    label: "Chat",
+    maxTokens: 1024,
+    buildPrompt(chunks: ContextChunk[], text?: string): string {
+      return APP_CONFIGS.chat.buildPrompt(chunks, text);
+    },
+    buildUserMessage(text?: string): string {
+      return APP_CONFIGS.chat.buildUserMessage(text);
+    },
+  },
+
   talk: {
     label: "Talk",
     maxTokens: 1024,

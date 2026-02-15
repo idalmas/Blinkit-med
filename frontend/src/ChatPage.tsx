@@ -43,6 +43,7 @@ export default function ChatPage() {
           if (text.trim()) {
             setInput(prevInput => prevInput + text)
           }
+          setTimeout(() => inputRef.current?.focus(), 50)
         }
         setMorseOpen(prev => !prev)
         return
