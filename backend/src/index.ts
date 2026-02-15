@@ -43,6 +43,7 @@ const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || "";
 
 const app = new Hono();
 const { upgradeWebSocket, websocket } = createBunWebSocket();
+const signalClients = new Set<any>();
 
 /* ── Middleware ──────────────────────────────────────────────── */
 
