@@ -4,7 +4,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
 
-const PORT = 3002;
+const PORT = 3003;
 const app = express();
 const server = http.createServer(app);
 

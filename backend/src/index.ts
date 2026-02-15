@@ -30,6 +30,7 @@ import { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 import { ensureIndex, ensurePersonField } from "./lib/elasticsearch";
 import upload from "./routes/upload";
 import generate from "./routes/generate";
@@ -37,6 +38,8 @@ import long from "./routes/long";
 import documents from "./routes/documents";
 import getContext from "./routes/getContext";
 import apps from "./routes/apps";
+
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || "";
 
 const app = new Hono();
 const { upgradeWebSocket, websocket } = createBunWebSocket();
@@ -224,47 +227,123 @@ app.route("/documents", documents);
 app.route("/getContext", getContext);
 app.route("/apps", apps);
 /**
- * GET /ws — minimal realtime transcription socket endpoint.
+ * GET /ws — combined WebSocket endpoint.
  *
- * This endpoint accepts the Talk page WebSocket connection so the client can
- * start microphone streaming without failing handshake. Incoming audio frames
- * are currently ignored until a transcription engine is wired in.
+ * Handles two types of traffic on a single socket:
+ *   1. Binary frames (audio PCM) → forwarded to Deepgram for transcription
+ *   2. JSON string frames → signal processing (EOG) or subscribe messages
  */
 app.get(
   "/ws",
-  upgradeWebSocket(() => ({
-    onOpen(_, ws) {
-      signalClients.add(ws);
-      ws.send(JSON.stringify({ type: "connected" }));
-    },
-    onMessage(event, ws) {
-      try {
-        const raw = event.data;
-        if (typeof raw !== "string") return;
-        const data = JSON.parse(raw);
-        if (data.type === "signal") {
-          const processed = eogProcessor.process(data as SignalInput);
-          const payload = JSON.stringify(processed);
-          // Fan out to all other connected clients.
-          for (const client of signalClients) {
-            if (client === ws) continue;
-            try {
-              client.send(payload);
-            } catch {
-              // Ignore send errors for stale sockets; onClose will prune.
-            }
-          }
-        } else if (data.type === "subscribe") {
-          ws.send(JSON.stringify({ type: "subscribed" }));
+  upgradeWebSocket(() => {
+    let dgConnection: ReturnType<ReturnType<typeof createClient>["listen"]["live"]> | null = null;
+
+    return {
+      onOpen(_evt, ws) {
+        signalClients.add(ws);
+        ws.send(JSON.stringify({ type: "connected" }));
+
+        if (!DEEPGRAM_API_KEY) {
+          ws.send(JSON.stringify({ type: "error", message: "DEEPGRAM_API_KEY not set" }));
+          return;
         }
-      } catch {
-        // Ignore non-JSON/binary frames from other clients.
-      }
-    },
-    onClose(_, ws) {
-      signalClients.delete(ws);
-    },
-  }))
+
+        const deepgram = createClient(DEEPGRAM_API_KEY);
+        dgConnection = deepgram.listen.live({
+          model: "nova-2",
+          language: "en",
+          smart_format: true,
+          diarize: true,
+          encoding: "linear16",
+          sample_rate: 16000,
+          channels: 1,
+          interim_results: true,
+          utterance_end_ms: 1000,
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Open, () => {
+          console.log("[deepgram] Connection opened");
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Transcript, (data: any) => {
+          const alt = data.channel?.alternatives?.[0];
+          if (!alt || !alt.transcript) return;
+
+          const words = (alt.words || []).map((w: any) => ({
+            word: w.word,
+            speaker: w.speaker ?? 0,
+            start: w.start,
+            end: w.end,
+            confidence: w.confidence,
+          }));
+
+          if (data.is_final) {
+            const speakerVals = words.map((w: any) => w.speaker);
+            const unique = [...new Set(speakerVals)];
+            console.log(`[deepgram] final transcript: "${alt.transcript}" speakers: [${unique}]`);
+          }
+
+          ws.send(JSON.stringify({
+            type: "transcript",
+            transcript: alt.transcript,
+            words,
+            is_final: data.is_final ?? false,
+          }));
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Error, (err: any) => {
+          console.error("[deepgram] Error:", err);
+          ws.send(JSON.stringify({ type: "error", message: "Deepgram error" }));
+        });
+
+        dgConnection.on(LiveTranscriptionEvents.Close, () => {
+          console.log("[deepgram] Connection closed");
+        });
+      },
+
+      onMessage(event, ws) {
+        // Binary data → forward to Deepgram for transcription
+        if (typeof event.data !== "string") {
+          if (dgConnection) {
+            dgConnection.send(event.data);
+          }
+          return;
+        }
+
+        // JSON string data → handle signal processing and subscribe
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "signal") {
+            const processed = eogProcessor.process(data as SignalInput);
+            const payload = JSON.stringify(processed);
+            for (const client of signalClients) {
+              if (client === ws) continue;
+              try {
+                client.send(payload);
+              } catch {
+                // Ignore send errors for stale sockets; onClose will prune.
+              }
+            }
+          } else if (data.type === "subscribe") {
+            ws.send(JSON.stringify({ type: "subscribed" }));
+          }
+        } catch {
+          // Non-JSON string → try forwarding to Deepgram as audio
+          if (dgConnection) {
+            dgConnection.send(Buffer.from(event.data));
+          }
+        }
+      },
+
+      onClose(_evt, ws) {
+        signalClients.delete(ws);
+        if (dgConnection) {
+          dgConnection.requestClose();
+          dgConnection = null;
+        }
+      },
+    };
+  })
 );
 
 /** Health check — useful for uptime monitoring. */
@@ -272,7 +351,7 @@ app.get("/", (c) => c.json({ status: "ok", service: "revive-backend" }));
 
 /* ── Bootstrap & Export for Bun ─────────────────────────────── */
 
-const PORT = Number(process.env.PORT) || 3001;
+const PORT = Number(process.env.PORT) || 3003;
 
 // Create the Elasticsearch index if it doesn't exist, then add the `person`
 // field to the mapping (safe no-op if it already exists), then start serving.

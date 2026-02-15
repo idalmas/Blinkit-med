@@ -4,6 +4,7 @@ import Webcam from 'react-webcam'
 import { FaMapMarkerAlt, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch, FaPhone, FaGlobe } from 'react-icons/fa'
 
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import { MorseKeyboard, type MorseKeyboardHandle } from './MorseKeyboard'
 import { API_BASE, PERSON } from './config'
 const POLL_INTERVAL = 3000
 
@@ -89,9 +90,33 @@ export default function MapsPage() {
 
   // Keep ref in sync
   useEffect(() => { highlightedIdxRef.current = highlightedIdx }, [highlightedIdx])
+  const [morseOpen, setMorseOpen] = useState(false)
+  const morseOpenRef = useRef(false)
+  const morseRef = useRef<MorseKeyboardHandle>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { morseOpenRef.current = morseOpen }, [morseOpen])
 
   const handleBlink = useCallback(
     (type: BlinkType) => {
+      // Quadruple blink toggles Morse keyboard
+      if (type === 'quadruple') {
+        if (morseOpenRef.current && morseRef.current) {
+          const text = morseRef.current.getComposedText()
+          if (text.trim()) {
+            setQuery(prev => prev + text)
+          }
+          setTimeout(() => searchInputRef.current?.focus(), 50)
+        }
+        setMorseOpen(prev => !prev)
+        return
+      }
+
+      // When Morse keyboard is open, route all events to it
+      if (morseOpenRef.current) {
+        morseRef.current?.handleBlink(type)
+        return
+      }
+
       if (type === 'long-close' || type === 'triple') {
         if (places.length > 0) {
           // Go back to suggestions
@@ -426,6 +451,7 @@ export default function MapsPage() {
           >
             <FaSearch size={14} color="rgba(255,255,255,0.3)" />
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search a place or location..."
               value={query}
@@ -924,6 +950,35 @@ export default function MapsPage() {
           {centerIdx + 1} / {places.length}
         </div>
       )}
+
+      {/* Morse mode indicator */}
+      {morseOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 20,
+          right: 380,
+          background: 'rgba(99, 102, 241, 0.2)',
+          border: '1px solid rgba(99, 102, 241, 0.4)',
+          borderRadius: 8,
+          padding: '4px 10px',
+          fontSize: 11,
+          color: '#a5b4fc',
+          fontWeight: 600,
+          zIndex: 25,
+        }}>
+          MORSE MODE
+        </div>
+      )}
+
+      {/* Morse Keyboard Panel */}
+      <MorseKeyboard
+        ref={morseRef}
+        isOpen={morseOpen}
+        onClose={(text) => {
+          if (text.trim()) setQuery(prev => prev + text)
+          setMorseOpen(false)
+        }}
+      />
 
       {/* Webcam preview */}
       <div

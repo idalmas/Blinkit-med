@@ -44,7 +44,7 @@ Fill in the four keys in `.env`:
 ### 4. Run the server
 
 ```bash
-bun run dev    # hot-reload mode on http://localhost:3001
+bun run dev    # hot-reload mode on http://localhost:3003
 ```
 
 ## API Endpoints
@@ -54,7 +54,7 @@ bun run dev    # hot-reload mode on http://localhost:3001
 Upload a transcript chunk to the vector store.
 
 ```bash
-curl -X POST http://localhost:3001/upload \
+curl -X POST http://localhost:3003/upload \
   -H "Content-Type: application/json" \
   -d '{"text": "I really love building things that help people.", "speaker": "Ian"}'
 ```
@@ -70,7 +70,7 @@ curl -X POST http://localhost:3001/upload \
 Generate two AI response options for a conversation.
 
 ```bash
-curl -X POST http://localhost:3001/generate \
+curl -X POST http://localhost:3003/generate \
   -H "Content-Type: application/json" \
   -d '{
     "dialog": [

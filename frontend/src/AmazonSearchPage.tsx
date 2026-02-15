@@ -29,10 +29,16 @@ import { useNavigate } from 'react-router-dom'
 import Webcam from 'react-webcam'
 import { FaAmazon, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
+import { MorseKeyboard, type MorseKeyboardHandle } from './MorseKeyboard'
 import { API_BASE, PERSON } from './config'
 
 /** How often (ms) to poll BrightData for scrape completion. */
 const POLL_INTERVAL = 3000
+
+const FALLBACK_AMAZON_SUGGESTIONS = [
+  'wireless earbuds', 'portable charger', 'laptop stand', 'water bottle',
+  'bluetooth speaker', 'desk organizer', 'phone case', 'LED desk lamp',
+]
 
 interface AmazonProduct {
   title?: string
@@ -135,14 +141,17 @@ export default function AmazonSearchPage() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
   const [activeSuggestion, setActiveSuggestion] = useState<string | null>(null)
-  const autoSearchTriggeredRef = useRef(false)
-
   // Index of the suggestion currently highlighted via blink navigation
   const [highlightedSuggestionIdx, setHighlightedSuggestionIdx] = useState(0)
   /** Ref mirror of highlightedSuggestionIdx so event handlers can read the
    *  latest value without closure staleness or side-effects inside setState. */
   const highlightedIdxRef = useRef(0)
   useEffect(() => { highlightedIdxRef.current = highlightedSuggestionIdx }, [highlightedSuggestionIdx])
+  const [morseOpen, setMorseOpen] = useState(false)
+  const morseOpenRef = useRef(false)
+  const morseRef = useRef<MorseKeyboardHandle>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { morseOpenRef.current = morseOpen }, [morseOpen])
 
   // Search result cache (persisted in localStorage)
   const cacheRef = useRef<Map<string, AmazonProduct[]>>(new Map())
@@ -224,6 +233,25 @@ export default function AmazonSearchPage() {
    */
   const handleBlink = useCallback(
     (type: BlinkType) => {
+      // Quadruple blink toggles Morse keyboard
+      if (type === 'quadruple') {
+        if (morseOpenRef.current && morseRef.current) {
+          const text = morseRef.current.getComposedText()
+          if (text.trim()) {
+            setKeyword(prev => prev + text)
+          }
+          setTimeout(() => searchInputRef.current?.focus(), 50)
+        }
+        setMorseOpen(prev => !prev)
+        return
+      }
+
+      // When Morse keyboard is open, route all events to it
+      if (morseOpenRef.current) {
+        morseRef.current?.handleBlink(type)
+        return
+      }
+
       if (type === 'long-close') {
         navigate('/apps')
         return
@@ -452,27 +480,6 @@ export default function AmazonSearchPage() {
   }, [])
 
   /**
-   * autoStartFirstSuggestion — kicks off a search as soon as suggestions load.
-   *
-   * This avoids a "stuck" first impression where users see no data while waiting
-   * to manually click. It runs once per page load and only when search is idle.
-   *
-   * @returns void
-   */
-  useEffect(() => {
-    if (autoSearchTriggeredRef.current) return
-    if (suggestionsLoading || suggestions.length === 0) return
-    if (status !== 'idle' || products.length > 0) return
-
-    autoSearchTriggeredRef.current = true
-    setHighlightedSuggestionIdx(0)
-    void handleSuggestionClick(suggestions[0])
-  }, [suggestionsLoading, suggestions, status, products.length, handleSuggestionClick])
-
-  // No auto-search — user must navigate suggestions with winks and
-  // double-blink to confirm before any search is triggered.
-
-  /**
    * handleSuggestionClick — triggered when the user clicks a suggestion chip.
    * Sets the keyword, marks the chip as active, and kicks off a BrightData search.
    */
@@ -630,6 +637,7 @@ export default function AmazonSearchPage() {
           >
             <FaSearch size={14} color="rgba(255,255,255,0.3)" />
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search Amazon products..."
               value={keyword}
@@ -1070,6 +1078,35 @@ export default function AmazonSearchPage() {
           )
         })()}
       </div>
+
+      {/* Morse mode indicator */}
+      {morseOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 20,
+          right: 380,
+          background: 'rgba(99, 102, 241, 0.2)',
+          border: '1px solid rgba(99, 102, 241, 0.4)',
+          borderRadius: 8,
+          padding: '4px 10px',
+          fontSize: 11,
+          color: '#a5b4fc',
+          fontWeight: 600,
+          zIndex: 25,
+        }}>
+          MORSE MODE
+        </div>
+      )}
+
+      {/* Morse Keyboard Panel */}
+      <MorseKeyboard
+        ref={morseRef}
+        isOpen={morseOpen}
+        onClose={(text) => {
+          if (text.trim()) setKeyword(prev => prev + text)
+          setMorseOpen(false)
+        }}
+      />
 
       {/* Webcam preview */}
       <div
