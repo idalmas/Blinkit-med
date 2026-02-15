@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
+import OpenAI from "openai";
 
 const apps = new Hono();
 
@@ -272,6 +274,117 @@ apps.post("/send-email", async (c) => {
     console.error("Send email error:", err);
     return c.json({ error: "Internal server error." }, 500);
   }
+});
+
+/**
+ * POST /apps/maps-search
+ *
+ * Searches Google Maps for a place/location via BrightData.
+ * Returns immediately with a snapshot_id — poll /apps/amazon-status/:id for results.
+ *
+ * Request body (JSON):
+ *   - query: string — place or location to search (required)
+ *
+ * Response (JSON):
+ *   202: { success: true, snapshot_id: string, status: "running" }
+ */
+apps.post("/maps-search", async (c) => {
+  try {
+    const apiKey = process.env.BRIGHTDATA_API_KEY;
+    const datasetId = process.env.BRIGHTDATA_MAPS_DATASET_ID;
+
+    if (!apiKey || !datasetId) {
+      return c.json(
+        { error: "Missing BRIGHTDATA_API_KEY or BRIGHTDATA_MAPS_DATASET_ID env vars." },
+        500
+      );
+    }
+
+    const body = await c.req.json<{ query?: string }>();
+
+    if (!body.query || body.query.trim().length === 0) {
+      return c.json({ error: "\"query\" is required." }, 400);
+    }
+
+    const searchUrl = `https://www.google.com/maps/search/${encodeURIComponent(body.query.trim())}`;
+    const input = [{ url: searchUrl }];
+
+    const url = new URL(`${BRIGHTDATA_BASE}/trigger`);
+    url.searchParams.set("dataset_id", datasetId);
+    url.searchParams.set("notify", "false");
+    url.searchParams.set("include_errors", "true");
+
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("BrightData Maps API error:", response.status, errorText);
+      return c.json(
+        { error: "BrightData API request failed.", status: response.status, details: errorText },
+        502
+      );
+    }
+
+    const data = await response.json();
+    return c.json(
+      { success: true, snapshot_id: data.snapshot_id, status: "running" },
+      202
+    );
+  } catch (err) {
+    console.error("Maps search error:", err);
+    return c.json({ error: "Internal server error." }, 500);
+  }
+});
+
+/**
+ * POST /apps/chat
+ *
+ * Streams a ChatGPT response via SSE.
+ *
+ * Request body (JSON):
+ *   - messages: { role: "user" | "assistant"; content: string }[]
+ *
+ * Response: text/event-stream with delta chunks
+ */
+apps.post("/chat", async (c) => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return c.json({ error: "Missing OPENAI_API_KEY env var." }, 500);
+  }
+
+  const body = await c.req.json<{
+    messages?: { role: "user" | "assistant"; content: string }[];
+  }>();
+
+  if (!body.messages || body.messages.length === 0) {
+    return c.json({ error: '"messages" array is required.' }, 400);
+  }
+
+  const openai = new OpenAI({ apiKey });
+
+  return streamSSE(c, async (stream) => {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: body.messages!,
+      stream: true,
+    });
+
+    for await (const chunk of completion) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        await stream.writeSSE({ data: JSON.stringify({ content: delta }) });
+      }
+    }
+
+    await stream.writeSSE({ data: "[DONE]" });
+  });
 });
 
 export default apps;

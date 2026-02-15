@@ -4,7 +4,7 @@ import Webcam from 'react-webcam'
 import { FaAmazon, FaStar, FaStarHalfAlt, FaRegStar, FaArrowLeft, FaSearch } from 'react-icons/fa'
 import { useBlinkDetection, type BlinkType } from './useBlinkDetection'
 
-const API_BASE = 'http://localhost:3002'
+const API_BASE = 'http://localhost:3003'
 const POLL_INTERVAL = 3000
 
 interface AmazonProduct {
